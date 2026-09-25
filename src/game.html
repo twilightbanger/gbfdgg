@@ -72,6 +72,8 @@ canvas#cv{display:block;width:100%;height:min(76vh,820px);touch-action:none;curs
 .tm .mini i{display:block;height:100%;background:var(--green)}
 .tm .u{font-family:var(--mono);font-size:11px;text-align:right;color:var(--mute)}
 .tm .u.full{color:var(--amber);font-weight:700}
+.tstate{font-size:12px;line-height:1.5;margin:-2px 0 8px;padding:5px 8px;border-radius:6px;background:#0004;border-left:3px solid var(--amber);color:var(--text)}
+.tstate small{color:var(--mute);display:block;font-size:11px}
 .calls{display:grid;grid-template-columns:1fr 1fr;gap:6px}.calls button:first-child{grid-column:1/-1}
 button.b{font-family:var(--disp);font-weight:700;letter-spacing:.04em;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:7px 10px;border-radius:6px;cursor:pointer;font-size:12.5px}
 button.b.on{border-color:var(--amber);color:var(--amber)}
@@ -135,6 +137,7 @@ button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
     <div class="side">
       <div class="card">
         <h3><span>指示（任意・普段は自動）</span></h3>
+        <div class="tstate" id="tstate">—</div>
         <div class="calls">
           <button class="b on" data-call="auto">自動（AIが判断） F</button>
           <button class="b" data-call="group">集合（自分についてくる） Z</button>
@@ -1019,6 +1022,11 @@ function draw(dt){
       ctx.beginPath();ctx.moveTo(s[0],s[1]);ctx.lineTo(s[2],s[3]);ctx.lineTo(s[2],s[3]-hz);ctx.lineTo(s[0],s[1]-hz);ctx.closePath();ctx.fill();ctx.stroke();
       if(b.kind!=='grasp'){ctx.fillStyle='#fff';ctx.font='700 10px "JetBrains Mono",monospace';ctx.textAlign='center';ctx.fillText(Math.ceil(b.hp),b.x,b.y-hz-4)}}
   }
+  // enemies we lost sight of: a fading marker where the team last saw them (what the allied bots are working from)
+  for(const [e,k] of G.K.blue){if(e.dead||VIS.has(e)||e.summon)continue;const age=G.el-k.t;if(age>4)continue;ctx.globalAlpha=Math.max(0,.55-age*.12);
+    ctx.strokeStyle='#ff5d62';ctx.setLineDash([3,3]);ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(k.x,k.y-9,12,0,7);ctx.stroke();ctx.setLineDash([]);
+    ctx.save();ctx.beginPath();ctx.arc(k.x,k.y-9,10,0,7);ctx.clip();if(IMG[e.id]&&IMG[e.id].complete)ctx.drawImage(IMG[e.id],k.x-10,k.y-19,20,20);ctx.restore();
+    ctx.fillStyle='#ffd0d0';ctx.font='700 9px "JetBrains Mono",monospace';ctx.textAlign='center';ctx.fillText(age<1?'?':Math.floor(age)+'s',k.x,k.y+9);ctx.globalAlpha=1}
   // allies are always outlined, even behind walls (like the original)
   for(const u of focus){const zo=(u.z||0)*ZP;ctx.strokeStyle=u===p?'rgba(242,179,61,.75)':'rgba(79,179,255,.6)';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(u.x,u.y-zo-9,13,0,7);ctx.stroke()}
   // projectiles and tracers glow
@@ -1187,6 +1195,7 @@ const AIP={ // rng: preferred fight distance (m), min: too close, peek: plays th
 const AIF={blue:{path:1,peek:1,cover:1,thr:1},red:{path:1,peek:1,cover:1,thr:1}};
 const RANGE_M={ramattra:15,sigma:24,sojourn:44,ashe:46,tracer:14,mei:24,lucio:20,kiriko:30,ana:44,mizuki:24,bob:28};
 const THREAT_W={tank:1,damage:1.3,support:.7};
+const AOE_ULT={sigma:1,mei:1,ramattra:1,tracer:1,lucio:0,kiriko:0,ana:0,mizuki:0,sojourn:0,ashe:0};
 const HAZ={vortex:1,disruptor:1,blizzard:1.4,flux:1.6};
 
 // ---- team knowledge ----
@@ -1425,11 +1434,16 @@ function spotScore(u,c,an,tgt,mode,x,y){
   if(E&&tk&&u.role!=='tank'&&u.id!=='tracer'&&an.kind!=='point'){const dT=Math.hypot(tk.x-E.x,tk.y-E.y),dP=Math.hypot(x-E.x,y-E.y);if(dP<dT-3*M)s-=(dT-3*M-dP)/M*1.1}
   const luc=c.allies.find(a=>a.id==='lucio'&&a!==u);if(luc&&Math.hypot(luc.x-x,luc.y-y)<11*M)s+=3;
   if(u.id!=='tracer'&&an.kind==='fight'){const dp=Math.hypot(x-N.point.px,y-N.point.py)/M;if(dp>22)s-=(dp-22)*.6}
+  // they hold a group-wipe ult (Graviton-style flux, Blizzard, Annihilation, Pulse Bomb): don't stack up
+  if(c.aoeUlt&&mode!=='escape'){let n=0;for(const a of c.allies)if(a!==u&&!a.summon&&Math.hypot(a.x-x,a.y-y)<4.5*M)n++;if(n>=2)s-=(n-1)*3.5}
+  // crossfire: damage heroes take a different angle on their group than our tank does
+  if(E&&tk&&u.role==='damage'&&u.id!=='tracer'&&mode==='fight'){const a1=Math.atan2(tk.y-E.y,tk.x-E.x),a2=Math.atan2(y-E.y,x-E.x);const da=Math.abs(angDiff(a1,a2));if(da>.6)s+=Math.min(4,(da-.6)*6)}
   return s}
 function tactics(u,c){
   const team=u.team,T=G.T[team],TH=THR[team];const P=AIP[u.id]||{rng:20,peek:0};
   const now=G.el,el=Math.min(1,now-(u.ai.tT??now));u.ai.tT=now;
   const hpf=hpFrac(u);const here=TH[tci(u.x,u.y)];const burst=(c.incoming||0)/Math.max(1,totalMax(u));
+  c.aoeUlt=c.foesAll.some(f=>f.ult>=f.d.ult&&AOE_ULT[f.id]);
   c.healer=healerFor(u,c);c.ebars=G.barriers.filter(b=>b.team!==team&&b.hp>0&&b.kind!=='grasp').map(barrierSeg);
   // the user's turn rule: while our key cooldowns are spent we play passive (hold cover, trade only at safe angles)
   c.passive=T.turn===false&&!urgentFor(team)&&!(u.st.nano>0);
@@ -1607,6 +1621,10 @@ function buildPerkBar(){const el=document.getElementById('perkbar');const u=G&&G
 let uiT=0;
 function updUI(dt){
   uiT-=dt;if(uiT>0||!G)return;uiT=.1;const u=G.player;
+  {const T=G.T.blue||{};const el=document.getElementById('tstate');const pw=T.pow?` ・ 戦力 ${T.pow[0].toFixed(1)} vs ${T.pow[1].toFixed(1)}`:'';
+    const st=G.call!=='auto'?{group:'あなたについていく',push:'ポイントへ突撃',hold:'その場で待機',retreat:'後退中'}[G.call]:G.cp.locked>0?'解放待ち：集合地点で待機':T.ts==='engage'?(T.adv?'有利：ポイントに乗る':(T.turn===false?'交戦中（スキル待ち・受け）':'交戦中')):T.retreat&&G.el-T.retreat<25?'リグループ中（負けた戦闘から撤退）':'集合中：そろったら入る';
+    const f=T.focus&&!T.focus.dead?`フォーカス：${T.focus.name}`:'フォーカス：—';
+    const html=`味方AI：${st}<small>${f}${pw}${T.style?' ・ '+(T.style==='brawl'?'ブロール':'ポーク'):''}</small>`;if(el.innerHTML!==html)el.innerHTML=html}
   if(u){const sig=(u.perkNeed||'')+(u.plv||1)+JSON.stringify(u.perks||{})+Math.floor((u.pxp||0)/50);if(sig!==G.pbSig){G.pbSig=sig;buildPerkBar()}}
   document.getElementById('time').textContent=G.cp.locked>0?`解放 ${Math.ceil(G.cp.locked)}`:G.ot?'OT':fmt(G.el);document.getElementById('cap').textContent=`${Math.floor(G.cp.pct.blue)}% - ${Math.floor(G.cp.pct.red)}%`;document.getElementById('capbar').style.width=G.cp.pct.blue+'%';document.getElementById('kd').textContent=`${G.bk} - ${G.rk}`;
   if(u){const tm=Math.max(totalMax(u),totalHp(u));const hp=document.getElementById('meHp');hp.innerHTML=`<i style="width:${u.hp/tm*100}%;background:${u.hp/u.d.hp<.35?'var(--red)':'#f4f7f8'}"></i><i style="width:${u.armor/tm*100}%;background:var(--armor)"></i><i style="width:${u.shield/tm*100}%;background:var(--shield)"></i><i style="width:${overSum(u)/tm*100}%;background:var(--green)"></i>`;
