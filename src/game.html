@@ -148,6 +148,7 @@ button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
       </div>
       <div class="card"><h3><span>味方</span><span>ULT</span></h3><div class="team" id="blueList"></div></div>
       <div class="card"><h3><span>敵BOT</span><span>ULT</span></h3><div class="team" id="redList"></div></div>
+      <div class="card"><h3><span>AI学習</span><button class="b" id="learnReset" style="padding:3px 8px;font-size:11px">リセット</button></h3><div class="help" id="learn">—</div></div>
       <div class="card"><h3><span>戦況</span></h3><div class="feed" id="feed"></div></div>
       <div class="card help">
         <b style="color:var(--text)">操作</b><br>
@@ -179,12 +180,12 @@ const BOX=[],ROOMS=[],BOUNDARY=[];
 const NODE_SRC={stage:[320,300,0],front:[457,405,0],hg:[594,406,0],stairB:[594,406,0],nest:[286,377,0],stairNest:[286,377,0],
   kitIn:[206,434,0],kitMid:[194,491,0],kitOut:[297,571,0],market:[343,343,0],ne:[566,394,0]};
 const N={};const MIRY=985;
-for(const k in NODE_SRC){const [x,y,f]=NODE_SRC[k];N['b_'+k]={px:x*S,py:y*S+OY,floor:f+1};N['r_'+k]={px:x*S,py:(MIRY-y)*S+OY,floor:f+1}}
+for(const k in NODE_SRC){const [x,y,f]=NODE_SRC[k];N['b_'+k]={px:x*S,py:y*S+OY,floor:f+1};N['r_'+k]={px:x*S,py:1152-y*S+OY,floor:f+1}}
 N['point']={px:NM.point[0],py:NM.point[1]+OY,floor:1};
 const nodeOf=(team,k)=>N[(team==='blue'?'b_':'r_')+k];
-const HEALTHPACKS=NM.packs.map(([x,y])=>({x:x/M,y:(y+OY)/M,big:false}));
+const HEALTHPACKS=NM.packs.filter(([x,y])=>y<586).flatMap(([x,y])=>y>566?[[x,576]]:[[x,y],[x,1152-y]]).map(([x,y])=>({x:x/M,y:(y+OY)/M,big:false}));
 // capture zone = the white dashed square drawn around the point on the layout (measured from the image, ~9.3 m square)
-const CAP={x0:542,y0:514.5+OY,x1:672.3,y1:645.8+OY};
+const CAP={x0:542,y0:510.4+OY,x1:672.3,y1:641.7+OY}; // centred on the map's mirror line (4 px above the drawn square's centre) so both sides are equally far
 const onCap=(x,y,m=0)=>x>=CAP.x0-m&&x<=CAP.x1+m&&y>=CAP.y0-m&&y<=CAP.y1+m;
 // spawn rooms (nav cells, original-layout rows; red is the row mirror). The exits are in the room's point-side wall,
 // exactly where the layout draws the yellow spawn-door bars: one into the side room, one down a short hall into the main room.
@@ -211,10 +212,35 @@ const ov=(a0,a1,b0,b1)=>a0<b1&&b0<a1;
 function inPoly(x,y,poly){let c=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])c=!c}return c}
 const inR=(r,x,y)=>x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h;
 let walkPic=null;
+// openings cut into the layout's wall lines (layout px; each one is mirrored onto the red half).
+// ENTRANCES: the two side rooms by the market get a door toward their own side; SPAWN_CUTS: the spawn exits.
+const ENTRANCES=[{x0:362,y0:358,x1:404,y1:373},{x0:425,y0:412,x1:466,y1:427},
+  {x0:337,y0:175,x1:364,y1:190}]; // the health-pack room north of the market opens toward its own spawn, like the red one does
+// wall lines added to the layout (mirrored as well): the health-pack room's back wall, so the blue one matches the red one
+const EXTRA_SEGS=[[335,232,366,232]];
+const SPAWN_CUTS=[{x0:198,y0:0,x1:240,y1:20},{x0:372,y0:0,x1:414,y1:56}];
+const SEGS=[];const SEGC=new Uint8Array(GN);
+// The map is made exactly symmetric: the blue (top) half is the master and the red half is its mirror (layout y -> MIR-y,
+// the same row mirror the nav grid uses), so neither side gets a better room, corner or sightline.
+const MIR=1152,MIDY=MIR/2;
+function topHalf(segs){const out=[];for(const [x1,y1,x2,y2] of segs){if(y1<=MIDY&&y2<=MIDY){out.push([x1,y1,x2,y2]);continue}if(y1>MIDY&&y2>MIDY)continue;
+  const t=(MIDY-y1)/(y2-y1),xm=x1+(x2-x1)*t;out.push(y1<=MIDY?[x1,y1,xm,MIDY]:[xm,MIDY,x2,y2])}return out}
+function wallSegs(){const cuts=[];for(const e of [...ENTRANCES,...SPAWN_CUTS]){cuts.push(e);cuts.push({x0:e.x0,x1:e.x1,y0:MIR-e.y1,y1:MIR-e.y0})}
+  const out=[];const half=topHalf([...NM.segs,...EXTRA_SEGS]);
+  for(const [x1,y1,x2,y2] of half.flatMap(([a,b,c,d])=>[[a,b,c,d],[a,MIR-b,c,MIR-d]])){const L=Math.hypot(x2-x1,y2-y1),n=Math.max(1,Math.ceil(L));let run=null;
+    for(let k=0;k<=n;k++){const t=k/n,x=x1+(x2-x1)*t,y=y1+(y2-y1)*t;const cut=cuts.some(c=>x>=c.x0&&x<=c.x1&&y>=c.y0&&y<=c.y1);
+      if(!cut&&run===null)run=t;
+      if((cut||k===n)&&run!==null){const e=cut?Math.max(run,(k-1)/n):t;if((e-run)*L>=3)out.push([x1+(x2-x1)*run,y1+(y2-y1)*run+OY,x1+(x2-x1)*e,y1+(y2-y1)*e+OY]);run=null}}}
+  return out}
 function buildNav(){
   // the layout grid, shifted down by the spawn strip
   const src=atob(NM.nav),SW=GW,SH=Math.ceil(NM.H/CELL);const raw=new Uint8Array(GN);
-  for(let r=0;r<SH;r++)for(let c=0;c<SW;c++)raw[(r+PADR)*GW+c]=src.charCodeAt(r*SW+c);
+  for(let r=0;r<SH;r++)for(let c=0;c<SW;c++)raw[(r+PADR)*GW+c]=src.charCodeAt((r<SH/2?r:SH-1-r)*SW+c); // bottom half = mirror of the top half
+  // walls: the traced wall cells of the layout came out as staircases; drop them and rebuild every wall from the
+  // straight white lines of the layout image (NM.segs), with the entrances cut in
+  for(let i=PADR*GW;i<(PADR+SH)*GW;i++)if(raw[i]&16)raw[i]=65;
+  SEGS.push(...wallSegs());
+  for(const [ax,ay,bx,by] of SEGS){const r=(ax===bx||ay===by)?3.1:4.3;capsule(ax,ay,bx,by,r,i=>{raw[i]=80;SEGC[i]=1})}
   // parts of the white dashed lines (capture square, the cart east of the point) were traced as walls: they are floor
   const clear=(x0,y0,x1,y1)=>{for(let y=Math.floor(y0/CELL);y<=Math.floor(y1/CELL);y++)for(let x=Math.floor(x0/CELL);x<=Math.floor(x1/CELL);x++){const i=y*GW+x;if(raw[i]&16)raw[i]=65}};
   clear(CAP.x0-7,CAP.y0-7,CAP.x1+7,CAP.y1+7);clear(738,541+OY,789,616+OY);
@@ -228,7 +254,11 @@ function buildNav(){
     for(const d of sc.door)if(d.hall){wallIf(d.i-1);wallIf(d.i+1)}
     SPAWNS[team]={...sc,code,c0,c1,r0,r1,x0:c0*CELL,x1:(c1+1)*CELL,y0:r0*CELL,y1:(r1+1)*CELL}}
   for(let i=0;i<GN;i++){SOLID[i]=[];const v=raw[i];if(v&1)LY[0][i]=1;if(v&16){WALLC[i]=1;SOLID[i].push(0,4.2)}if(!(v&64)&&!(v&1)){SOLID[i].push(0,12)}FLOORT[i]=v&1?1:0;EYE[i]=solidAt(i,1.6)?1:0}
-  for(let gy=0;gy<GH;gy++){let gx=0;while(gx<GW){const i=gy*GW+gx;if(!WALLC[i]){gx++;continue}let e=gx;while(e+1<GW&&WALLC[gy*GW+e+1])e++;
+  // straight walls, cut into short pieces so they depth-sort correctly against heroes standing beside them
+  for(const [ax,ay,bx,by] of SEGS){const L=Math.hypot(bx-ax,by-ay),n=Math.max(1,Math.ceil(L/14));
+    for(let k=0;k<n;k++){const px=ax+(bx-ax)*k/n,py=ay+(by-ay)*k/n,qx=ax+(bx-ax)*(k+1)/n,qy=ay+(by-ay)*(k+1)/n;
+      BOX.push({kind:'seg',ax:px,ay:py,bx:qx,by:qy,x:(Math.min(px,qx)-3)/M,y:(Math.min(py,qy)-3)/M,w:(Math.abs(qx-px)+6)/M,h:(Math.abs(qy-py)+6)/M,z0:0,z1:3.2})}}
+  for(let gy=0;gy<GH;gy++){let gx=0;while(gx<GW){const i=gy*GW+gx;if(!WALLC[i]||SEGC[i]){gx++;continue}let e=gx;while(e+1<GW&&WALLC[gy*GW+e+1]&&!SEGC[gy*GW+e+1])e++;
     let so=false;for(let q=gx;q<=e;q++)if(gy+1>=GH||!WALLC[(gy+1)*GW+q])so=true;BOX.push({kind:'wall',x:gx*CELL/M,y:gy*CELL/M,w:(e-gx+1)*CELL/M,h:CELL/M,z0:0,z1:3.2,cellWall:true,so});gx=e+1}}
   const oc=document.createElement('canvas');oc.width=GW;oc.height=GH;const og=oc.getContext('2d');const im=og.createImageData(GW,GH);
   for(let i=0;i<GN;i++){if(LY[0][i]===1)im.data.set(SPAWNC[i]?[120,200,255,40]:[255,170,110,26],i*4)}
@@ -366,6 +396,7 @@ function heal(t,amt,src){
   return used;
 }
 function kill(t,src){
+  learnDeath(t);
   if(t.summon){t.dead=1e9;t.hp=0;log('good',`${t.name}を破壊`);return}
   const fin=t.lastSrc;if(fin&&fin.stat&&fin.team!==t.team){fin.stat.elim++;if(fin.id==='ramattra'&&fin.st.nemesis>0&&fin.st.nemesis<900&&PK(fin,'relentless'))fin.st.nemesis+=1;if(fin.ctrl==='player')G.killT=.5}t.stat.death++;t.killedBy=fin?fin.name:'?';G.kf.unshift({k:fin?fin.id:null,v:t.id,kt:fin?fin.team:null,vt:t.team,t:6});G.kf.length=Math.min(G.kf.length,6);
   t.dead=RESPAWN;t.hp=0;t.armor=0;t.shield=0;t.over=[];t.path=[];t.st={};
@@ -485,6 +516,8 @@ function tryMove(u,nx,ny){
     if((STAIR[ci]||(mob&&JUMP[ci]))&&canStand(1-l,ni,mob,u.team))l=1-l;
     else if(l===1&&!SLAB[ni]&&canStand(0,ni,mob,u.team))l=0; // step off an open balcony edge and drop down
     else{if(u.ctrl!=='player'&&!air&&l===0&&LOW[ni]&&!(u.cd.jump>0))jump(u);return false}}
+  // setup: spawn doors stay shut until the round starts
+  if(G.cp.locked>0&&SPAWNC[ci]===TEAMCODE[u.team]&&SPAWNC[ni]!==TEAMCODE[u.team])return false;
   // enemies are solid bodies on the same floor
   for(const o of G.units){if(o.dead||o.team===u.team||o.l!==l||o.summonGhost)continue;const d=Math.hypot(o.x-nx,o.y-ny);if(d<BODY*2&&d<Math.hypot(o.x-u.x,o.y-u.y))return false}
   for(const p of G.pillars){if(p.hp>0&&Math.hypot(p.x-nx,p.y-ny)<p.r+BODY&&l===0)return false}
@@ -576,17 +609,24 @@ function use(u,key){
 }
 const nearestTo=(list,x,y)=>list.slice().sort((a,b)=>Math.hypot(a.x-x,a.y-y)-Math.hypot(b.x-x,b.y-y))[0];
 // bots aim like people: they react to where you were a moment ago, lead with the velocity they saw, and miss more right after switching targets
-const PROF={blue:{err:.3,react:.1},red:{err:.75,react:.2}};
+const PROF={blue:{err:.8,react:.14},red:{err:1.3,react:.2}}; // err scales the aim wander above (1 ≈ a solid human player)
 function seenAt(t,ago){const h=t.ph;if(!h||!h.length)return{x:t.x,y:t.y,vx:0,vy:0};const want=G.t+ago;let a=h[h.length-1],b=a;
   for(let i=h.length-1;i>=0;i--){if(h[i].t>=want){a=h[i];b=h[Math.min(h.length-1,i+2)];break}a=h[i];b=h[Math.min(h.length-1,i+2)]}
   const dt=Math.max(.05,a.t-b.t);return{x:a.x,y:a.y,vx:(b.x-a.x)/dt,vy:(b.y-a.y)/dt}}
-function aimAt(u,t,speedM,errM){
-  const pr=PROF[u.team]||PROF.red;const s=seenAt(t,pr.react);let tx=s.x,ty=s.y;
-  if(u.ai.lastT!==t){u.ai.lastT=t;u.ai.sw=.35}
-  if(speedM){const d=Math.hypot(tx-u.x,ty-u.y);const tt=d/(speedM*M)+pr.react;tx+=s.vx*tt*.85;ty+=s.vy*tt*.85}
-  const d=Math.hypot(tx-u.x,ty-u.y)||1;const e=(errM||0)*pr.err*(1+Math.max(0,u.ai.sw||0)*2)*M*gauss();const a=Math.atan2(ty-u.y,tx-u.x)+e/d;
-  u.aimX=u.x+Math.cos(a)*d;u.aimY=u.y+Math.sin(a)*d;u.aimZ=(t.z||0)+1.2;
-}
+// Human-like aim. The bot tracks the target it saw a reaction time ago (leading projectiles), and its crosshair wanders
+// around that point: a slowly drifting error (overshoot after a flick, lag while tracking) instead of a fresh random
+// offset per shot. The error grows with distance, with how fast the target strafes and right after switching targets,
+// so bursts miss in streaks and a strafing player really does dodge shots.
+function aimAt(u,t,speedM,errM){if(u.ai.lastT!==t){u.ai.lastT=t;u.ai.sw=.35}u.ai.aim={t,s:speedM||0,e:errM||0};aimTrack(u,0)}
+function aimTrack(u,dt){const A=u.ai.aim;if(!A||!A.t||A.t.dead)return;const t=A.t;const pr=PROF[u.team]||PROF.red;
+  const s=seenAt(t,pr.react);let tx=s.x,ty=s.y;
+  if(A.s){const d=Math.hypot(tx-u.x,ty-u.y);const tt=d/(A.s*M)+pr.react;tx+=s.vx*tt*.85;ty+=s.vy*tt*.85}
+  const dx=tx-u.x,dy=ty-u.y,d=Math.hypot(dx,dy)||1;
+  const vl=Math.abs((-s.vx*dy+s.vy*dx)/d)/M; // target's sideways speed, m/s
+  const sig=A.e*pr.err*(.55+.045*d/M)*(1+vl/5)*(1+Math.max(0,u.ai.sw||0)*1.5)*M;
+  const D=u.ai.drift||(u.ai.drift={a:gauss(),b:gauss()});const tau=.35;
+  if(dt>0){const k=Math.sqrt(2*dt/tau);D.a+=-D.a/tau*dt+k*gauss();D.b+=-D.b/tau*dt+k*gauss()}
+  const lx=-dy/d,ly=dx/d;u.aimX=tx+(lx*D.a+dx/d*D.b*.4)*sig;u.aimY=ty+(ly*D.a+dy/d*D.b*.4)*sig;u.aimZ=(t.z||0)+1.2;u.ai.ax=u.aimX;u.ai.ay=u.aimY}
 
 const KIT={
 // ---------------- LÚCIO ----------------
@@ -927,7 +967,8 @@ function buildGround(){const c=document.createElement('canvas');c.width=W*2;c.he
   g.fillStyle='#232120';g.fillRect(0,0,W*2,H*2);g.drawImage(mapImg,0,OY*2,W*2,NM.H*2);
   g.scale(2,2);
   for(const team of ['blue','red'])drawSpawnRoom(g,team);
-  g.fillStyle='rgba(0,0,0,.28)';for(const b of BOX){const m=v=>v*M;g.fillRect(m(b.x)+2,m(b.y)+2,m(b.w),m(b.h))}groundCv=c;LANTERNS=[]}
+  g.fillStyle='rgba(0,0,0,.28)';g.strokeStyle='rgba(0,0,0,.3)';g.lineWidth=6;g.lineCap='round';
+  for(const b of BOX){if(b.kind==='seg'){g.beginPath();g.moveTo(b.ax+2,b.ay+3);g.lineTo(b.bx+2,b.by+3);g.stroke();continue}const m=v=>v*M;g.fillRect(m(b.x)+2,m(b.y)+2,m(b.w),m(b.h))}groundCv=c;LANTERNS=[]}
 // spawn room floor: team-tinted tiles, the hall to the main room, a label
 function drawSpawnRoom(g,team){const S=SPAWNS[team];const rgb=team==='blue'?'79,179,255':'255,93,98';
   const cells=[...S.room,...S.door.map(d=>d.i)];
@@ -937,7 +978,14 @@ function drawSpawnRoom(g,team){const S=SPAWNS[team];const rgb=team==='blue'?'79,
   const cx=(S.x0+S.x1)/2,cy=(S.y0+S.y1)/2;g.fillStyle=`rgba(${rgb},.35)`;g.font='700 20px "Chakra Petch",sans-serif';g.textAlign='center';g.textBaseline='middle';g.fillText(team==='blue'?'BLUE SPAWN':'RED SPAWN',cx,cy);
   g.font='500 11px "Noto Sans JP",sans-serif';g.fillStyle=`rgba(${rgb},.5)`;g.fillText('リスポーン部屋 ・ 中にいると急速回復 ・ 敵は入れない',cx,cy+(team==='blue'?24:-24));g.textBaseline='alphabetic'}
 const BOX_SORTED=()=>BOX.filter(b=>b.kind!=='water');
-const COL={bldg:['#5e1d1c','#2a2f36'],wall:['#1f2530','#c3ccd7'],slab:['#4d3320','#7a5234'],rail:['#a8322a','#d8a84a'],pillar:['#a8322a','#d8a84a'],trunk:['#4a3322','#4a3322'],low:['#6b6660','#3f6b37'],stair:['#5b3d27','#8a6040']};
+const COL={bldg:['#5e1d1c','#2a2f36'],wall:['#1f2530','#c3ccd7'],seg:['#1f2530','#c3ccd7'],slab:['#4d3320','#7a5234'],rail:['#a8322a','#d8a84a'],pillar:['#a8322a','#d8a84a'],trunk:['#4a3322','#4a3322'],low:['#6b6660','#3f6b37'],stair:['#5b3d27','#8a6040']};
+// a straight wall: a thin slab along the line; the faces turned toward the camera are drawn, then the top
+function drawSeg(b,c,zt){const t=2.4,dx=b.bx-b.ax,dy=b.by-b.ay,L=Math.hypot(dx,dy)||1,nx=-dy/L*t,ny=dx/L*t;
+  const P=[[b.ax+nx,b.ay+ny],[b.bx+nx,b.by+ny],[b.bx-nx,b.by-ny],[b.ax-nx,b.ay-ny]];const cx=(b.ax+b.bx)/2,cy=(b.ay+b.by)/2;
+  ctx.fillStyle=c[0];
+  for(let k=0;k<4;k++){const p=P[k],q=P[(k+1)%4];const mx=(p[0]+q[0])/2-cx,my=(p[1]+q[1])/2-cy;if(my<=0.01)continue; // outward normal points up-screen: hidden
+    ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(q[0],q[1]);ctx.lineTo(q[0],q[1]-zt);ctx.lineTo(p[0],p[1]-zt);ctx.closePath();ctx.fill()}
+  ctx.fillStyle=c[1];ctx.beginPath();P.forEach((p,k)=>k?ctx.lineTo(p[0],p[1]-zt):ctx.moveTo(p[0],p[1]-zt));ctx.closePath();ctx.fill()}
 function drawBox(b,alpha){
   const x0=b.x*M,y0=b.y*M,x1=(b.x+b.w)*M,y1=(b.y+b.h)*M,zt=b.z1*ZP,zb=b.z0*ZP;const c=COL[b.kind]||['#777','#999'];
   ctx.globalAlpha=alpha;
@@ -948,6 +996,7 @@ function drawBox(b,alpha){
     ctx.closePath();ctx.fill();ctx.strokeStyle='rgba(0,0,0,.35)';ctx.lineWidth=1;
     const n=10;for(let i=1;i<n;i++){const t=i/n;if(b.dir==='E'||b.dir==='W'){const x=x0+(x1-x0)*t,z=(zA+(zB-zA)*t)*ZP;ctx.beginPath();ctx.moveTo(x,y0-z);ctx.lineTo(x,y1-z);ctx.stroke()}}
     ctx.fillStyle=c[0];ctx.beginPath();ctx.moveTo(x0,y1-zA*ZP);ctx.lineTo(x1,y1-zB*ZP);ctx.lineTo(x1,y1);ctx.lineTo(x0,y1);ctx.closePath();ctx.fill();ctx.globalAlpha=1;return}
+  if(b.kind==='seg'){drawSeg(b,c,zt);ctx.globalAlpha=1;return}
   if(b.kind==='trunk'){ctx.fillStyle=c[0];ctx.fillRect(x0+2,y1-zt*.55,x1-x0-4,zt*.55);
     const cx=(x0+x1)/2,cy=y0-zt;const r=2.6*M;const gr=ctx.createRadialGradient(cx-r*.3,cy-r*.3,r*.2,cx,cy,r);gr.addColorStop(0,'#6fa34f');gr.addColorStop(1,'#26452a');
     ctx.globalAlpha=alpha*.92;ctx.fillStyle=gr;for(const [dx,dy,rr] of [[0,0,1],[-.55,.2,.7],[.55,.25,.72],[0,-.5,.7]]){ctx.beginPath();ctx.arc(cx+dx*r,cy+dy*r,r*rr,0,7);ctx.fill()}
@@ -1045,7 +1094,7 @@ function draw(dt){
   if(p&&p.path.length){ctx.strokeStyle='rgba(242,179,61,.6)';ctx.setLineDash([3,6]);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(p.x,p.y);p.path.forEach(q=>ctx.lineTo(q.x,q.y));ctx.stroke();ctx.setLineDash([])}
   drawHud(p);
 }
-const AI_LABEL={fight:['交戦','#ffd9a0'],hide:['遮蔽','#9fe3ff'],escape:['退避','#ff9a9a'],regroup:['集合','#c9d6dd'],join:['合流','#c9d6dd'],evade:['回避','#e7b3ff'],move:['裏取り','#b8ff6b'],point:['ポイント','#f2d38a'],dive:['奇襲','#b8ff6b']};
+const AI_LABEL={fight:['交戦','#ffd9a0'],hide:['遮蔽','#9fe3ff'],escape:['退避','#ff9a9a'],regroup:['集合','#c9d6dd'],join:['合流','#c9d6dd'],evade:['回避','#e7b3ff'],move:['裏取り','#b8ff6b'],point:['ポイント','#f2d38a'],wait:['待機','#c9d6dd'],dive:['奇襲','#b8ff6b']};
 function drawUnit(u){
   const col=u.team==='blue'?'#4fb3ff':'#ff5d62';const fz=floorZ(u.x,u.y,u.l);const zo=(u.z||0)*ZP;
   ctx.fillStyle='rgba(0,0,0,.38)';ctx.beginPath();ctx.ellipse(u.x+2,u.y-fz*ZP+3,11,6,0,0,7);ctx.fill();
@@ -1070,6 +1119,21 @@ function drawUnit(u){
   if(tags.length){ctx.fillStyle='#e7d6ff';ctx.font='700 9px "Noto Sans JP",sans-serif';ctx.textAlign='center';ctx.fillText(tags.join(' '),0,-25)}
   ctx.restore();
 }
+// your own health, bottom-left like in Overwatch: portrait, big number, one slanted block per 25 HP
+// (white health, orange armor, blue shields, green overhealth; health turns red when low)
+function drawMyHp(p){const x0=18,base=VH-20;const hp=p.hp,ar=p.armor,sh=p.shield,ov=overSum(p);const tot=hp+ar+sh+ov,tm=Math.max(totalMax(p),tot);
+  ctx.save();ctx.fillStyle='rgba(7,12,15,.62)';ctx.beginPath();ctx.moveTo(x0-8,base+10);ctx.lineTo(x0-8,base-66);ctx.lineTo(x0+300,base-66);ctx.lineTo(x0+320,base+10);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.arc(x0+24,base-30,23,0,7);ctx.fillStyle='#10202a';ctx.fill();ctx.save();ctx.clip();if(IMG[p.id]&&IMG[p.id].complete)ctx.drawImage(IMG[p.id],x0+1,base-53,46,46);ctx.restore();
+  ctx.strokeStyle='#f2b33d';ctx.lineWidth=2;ctx.beginPath();ctx.arc(x0+24,base-30,23,0,7);ctx.stroke();
+  const low=hp/p.d.hp<.35;ctx.textAlign='left';ctx.fillStyle=low?'#ff5d62':'#fff';ctx.font='700 30px "Chakra Petch",sans-serif';const t=String(Math.ceil(tot));ctx.fillText(t,x0+58,base-28);
+  const tw=ctx.measureText(t).width;ctx.fillStyle='rgba(227,237,240,.7)';ctx.font='600 14px "Chakra Petch",sans-serif';ctx.fillText('/ '+Math.round(totalMax(p)),x0+62+tw,base-29);
+  const n=Math.ceil(tm/25),W=Math.min(236,Math.max(120,n*9)),gap=2,sw=(W-gap*(n-1))/n,bh=12,by=base-12;
+  const layers=[[hp,low?'#ff5d62':'#f4f7f8'],[ar,'#f0a64a'],[sh,'#7fd3ff'],[ov,'#5fd49a']];
+  for(let i=0;i<n;i++){const a=i*25,b=a+25;const x=x0+58+i*(sw+gap);
+    ctx.fillStyle='rgba(0,0,0,.55)';slant(x,by,sw,bh);let acc=0;
+    for(const [v,c] of layers){const l0=acc,l1=acc+v;acc=l1;const f0=Math.max(a,l0),f1=Math.min(b,l1);if(f1>f0){ctx.fillStyle=c;slant(x+(f0-a)/25*sw,by,(f1-f0)/25*sw,bh)}}}
+  ctx.restore()}
+function slant(x,y,w,h){const k=h*.35;ctx.beginPath();ctx.moveTo(x+k,y-h);ctx.lineTo(x+w+k,y-h);ctx.lineTo(x+w,y);ctx.lineTo(x,y);ctx.closePath();ctx.fill()}
 function drawHud(p){
   ctx.setTransform(dpr,0,0,dpr,0,0);
   // warm vignette
@@ -1079,18 +1143,20 @@ function drawHud(p){
     for(const h of G.hurt){ctx.strokeStyle=`rgba(255,70,70,${Math.min(1,h.t*1.6)})`;ctx.lineWidth=6;ctx.beginPath();ctx.arc(VW/2,VH/2,Math.min(VW,VH)*.32,h.a-.25,h.a+.25);ctx.stroke()}
     const hpf=hpFrac(p);if(hpf<.35){const g2=ctx.createRadialGradient(VW/2,VH/2,Math.min(VW,VH)*.3,VW/2,VH/2,Math.max(VW,VH)*.7);g2.addColorStop(0,'rgba(255,0,0,0)');g2.addColorStop(1,`rgba(255,30,30,${.35*(1-hpf/.35)+.1})`);ctx.fillStyle=g2;ctx.fillRect(0,0,VW,VH)}}
   if(!zoomAll){const mw=Math.min(190,VW*.28),mh=mw*H/W,mx0=VW-mw-10,my0=VH-mh-10,ms=mw/W;ctx.globalAlpha=.9;ctx.drawImage(groundCv,mx0,my0,mw,mh);ctx.globalAlpha=1;
-    ctx.fillStyle='rgba(20,15,10,.55)';for(const b of BOX)if(b.kind==='bldg'||b.kind==='wall'||b.kind==='slab'){ctx.fillStyle=b.kind==='slab'?'rgba(120,200,255,.45)':'rgba(30,20,15,.8)';ctx.fillRect(mx0+b.x*M*ms,my0+b.y*M*ms,b.w*M*ms,b.h*M*ms)}
+    ctx.fillStyle='rgba(20,15,10,.55)';ctx.strokeStyle='rgba(30,20,15,.9)';ctx.lineWidth=1.2;for(const b of BOX)if(b.kind==='seg'){ctx.beginPath();ctx.moveTo(mx0+b.ax*ms,my0+b.ay*ms);ctx.lineTo(mx0+b.bx*ms,my0+b.by*ms);ctx.stroke()}
+    for(const b of BOX)if(b.kind==='bldg'||b.kind==='wall'||b.kind==='slab'){ctx.fillStyle=b.kind==='slab'?'rgba(120,200,255,.45)':'rgba(30,20,15,.8)';ctx.fillRect(mx0+b.x*M*ms,my0+b.y*M*ms,b.w*M*ms,b.h*M*ms)}
     ctx.strokeStyle='#27404a';ctx.lineWidth=1;ctx.strokeRect(mx0,my0,mw,mh);
     ctx.strokeStyle=G.cp.owner==='blue'?'#4fb3ff':G.cp.owner==='red'?'#ff5d62':'#f2d38a';ctx.lineWidth=1.5;ctx.strokeRect(mx0+CAP.x0*ms,my0+CAP.y0*ms,(CAP.x1-CAP.x0)*ms,(CAP.y1-CAP.y0)*ms);ctx.lineWidth=1;
     for(const u of G.units){if(u.dead)continue;if(u.team==='red'&&!VIS.has(u))continue;ctx.fillStyle=u===p?'#f2b33d':u.team==='blue'?'#4fb3ff':'#ff5d62';ctx.beginPath();ctx.arc(mx0+u.x*ms,my0+u.y*ms,u===p?3.5:2.8,0,7);ctx.fill()}
     ctx.strokeStyle='rgba(255,255,255,.5)';ctx.strokeRect(mx0+(camX-VW/2/scale)*ms,my0+(camY-VH/2/scale)*ms,VW/scale*ms,VH/scale*ms)}
+  if(p&&!p.dead)drawMyHp(p);
   if(p&&p.dead){ctx.fillStyle='rgba(0,0,0,.3)';ctx.fillRect(0,0,VW,VH);ctx.fillStyle='#ff5d62';ctx.font='700 26px "Chakra Petch",sans-serif';ctx.textAlign='center';ctx.fillText(`リスポーンまで ${Math.ceil(p.dead)}`,VW/2,VH/2);ctx.fillStyle='#e3edf0';ctx.font='500 14px "Noto Sans JP",sans-serif';ctx.fillText(`${p.killedBy||'?'} にやられた`,VW/2,VH/2+26)}
   // control banner: both teams' percentages
   {const w=300,x0=VW/2-w/2,y0=10;ctx.fillStyle='rgba(7,12,15,.78)';ctx.fillRect(x0,y0,w,44);
     const pb=Math.floor(G.cp.pct.blue),pr=Math.floor(G.cp.pct.red);
     ctx.font='700 20px "Chakra Petch",sans-serif';ctx.textAlign='left';ctx.fillStyle='#4fb3ff';ctx.fillText(pb+'%',x0+12,y0+28);ctx.textAlign='right';ctx.fillStyle='#ff5d62';ctx.fillText(pr+'%',x0+w-12,y0+28);
     ctx.textAlign='center';ctx.font='700 12px "Chakra Petch","Noto Sans JP",sans-serif';ctx.fillStyle=G.ot?'#ff5d62':'#e3edf0';
-    const st=G.cp.locked?`ロック解除まで ${Math.ceil(G.cp.locked)}`:G.ot?'OVERTIME':G.contested?'争奪中':G.cp.capTeam?`${G.cp.capTeam==='blue'?'味方':'敵'}が確保中 ${Math.floor(G.cp.capProg)}%`:G.cp.owner?`${G.cp.owner==='blue'?'味方':'敵'}が保持`:'ポイント中立';
+    const st=G.cp.locked?`試合開始まで ${Math.ceil(G.cp.locked)}（スポーンで待機）`:G.ot?'OVERTIME':G.contested?'争奪中':G.cp.capTeam?`${G.cp.capTeam==='blue'?'味方':'敵'}が確保中 ${Math.floor(G.cp.capProg)}%`:G.cp.owner?`${G.cp.owner==='blue'?'味方':'敵'}が保持`:'ポイント中立';
     ctx.fillText(st,VW/2,y0+19);ctx.fillStyle='#8aa3ab';ctx.font='500 11px "JetBrains Mono",monospace';ctx.fillText(fmt(G.el),VW/2,y0+36)}
   {let y=12;for(const k of G.kf){const w=150,x0=12;ctx.globalAlpha=Math.min(1,k.t);ctx.fillStyle='rgba(7,12,15,.72)';ctx.fillRect(x0,y,w,26);
     const pic=(id,x,team)=>{if(!id)return;ctx.save();ctx.beginPath();ctx.arc(x,y+13,10,0,7);ctx.fillStyle=team==='blue'?'#4fb3ff':'#ff5d62';ctx.fill();ctx.clip();if(IMG[id]&&IMG[id].complete)ctx.drawImage(IMG[id],x-9,y+4,18,18);ctx.restore()};
@@ -1110,7 +1176,8 @@ function toWorld(e){const r=cv.getBoundingClientRect();const sx=e.clientX-r.left
 const BLUE_IDS=['ramattra','sojourn','tracer','lucio','kiriko'],RED_IDS=['sigma','tracer','ashe','mizuki','ana'];
 const RMB_MODE={lucio:'press',kiriko:'hold',tracer:'none',sojourn:'hold',ramattra:'press',sigma:'press',ashe:'state',mei:'hold',ana:'state',mizuki:'press'};
 
-const CAP_TIME=10, UNLOCK=30; // control point: the dashed square (CAP); ~10s to capture alone (x1.5 with 2, x2 with 3+); unlocks after 30s
+const CAP_TIME=10, UNLOCK=12; // control point: the dashed square (CAP); ~10s to capture alone (x1.5 with 2, x2 with 3+).
+// UNLOCK: setup time. Both teams wait in spawn behind closed doors; doors open and the point unlocks together.
 let paused=false,zoomAll=false,autoAim=false,showWalk=false,showThr=false,showAI=true,running=false,pickId='lucio';
 let feedDirty=true;
 function log(c,t){if(!G)return;const s=TIME-G.t;G.feed.unshift([c,t,`${Math.floor(Math.max(0,s)/60)}:${String(Math.floor(Math.max(0,s)%60)).padStart(2,'0')}`]);G.feed.length=Math.min(G.feed.length,50);feedDirty=true}
@@ -1123,7 +1190,8 @@ function init(){
   BLUE_IDS.forEach(id=>{const u=mkUnit(id,'blue');placeUnit(u);G.units.push(u)});
   RED_IDS.forEach(id=>{const u=mkUnit(id,'red');placeUnit(u);G.units.push(u)});
   setPlayer(G.units.find(u=>u.id===pickId));
-  log('tip','リジャンタワー：ナイトマーケット。ポイント（白い点線の四角）は30秒後に解放。リスポーン部屋の出口は黄色線の2か所。左の厨房側の通路は裏取りルート。');
+  log('tip','リジャンタワー：ナイトマーケット。開始までスポーンで待機、ドアが開くと同時にポイント（白い点線の四角）が解放。リスポーン部屋の出口は黄色線の2か所。左の厨房側の通路は裏取りルート。');
+  if(!LRN)learnInit();learnStart();updLearnUI();
   setCall('auto');buildSide();camX=spawnCenter('blue').px;camY=spawnCenter('blue').py;buildAbilityBar();
 }
 function setPlayer(u){if(G.player)G.player.ctrl='ai';G.player=u;u.ctrl='player';u.path=[];buildAbilityBar()}
@@ -1179,6 +1247,41 @@ function choosePerk(u,tier,id){u.perks[tier]=id;u.perkNeed=null;const p=PERKS[u.
 // ---------------- health packs (positions approximate) ----------------
 function stepPacks(dt){for(const p of G.packs){if(p.t>0){p.t-=dt;continue}for(const u of G.units){if(u.dead||u.summon||u.l!==0)continue;if(Math.hypot(u.x-p.x,u.y-p.y)<1.3*M&&(u.hp<u.d.hp||(u.id==='tracer'&&PK(u,'blinkpacks')&&u.charges<3))){heal(u,p.big?250:75,null);if(u.id==='tracer'&&PK(u,'blinkpacks'))u.charges=Math.min(3,u.charges+1);p.t=p.big?15:10;break}}}}
 
+// ================= LEARNING (kept in this browser between matches) =================
+// The bots learn three things from every match and play the next one with it:
+//  1. death spots: where heroes keep dying (stored from each side's own point of view, so both sides learn from both)
+//  2. enemy habits: where each side's enemies usually stand (the human player counts triple). Those spots are treated
+//     as likely sightlines while the enemy is out of sight, so bots check the angles you like to play
+//  3. aggression: each side picks how stubbornly it takes fights (x0.85 / x1 / x1.2) and scores the pick by how its fights went
+const LEARN_KEY='owlab-learn-v1',ARMS=['0.85','1','1.2'];let LRN=null,MIRC=null;
+function learnInit(){MIRC=new Int32Array(TN);for(let c=0;c<TN;c++){const x=((c%TW)+.5)*TC,y=(((c/TW)|0)+.5)*TC;MIRC[c]=tci(x,H-y)}
+  let d=null;try{d=JSON.parse(localStorage.getItem(LEARN_KEY)||'null')}catch(e){}
+  const dec=(a)=>{const f=new Float32Array(TN);if(Array.isArray(a))for(const [i,v] of a)if(i>=0&&i<TN)f[i]=v;return f};
+  if(!d||d.v!==1||d.tn!==TN)d={v:1,tn:TN,matches:0,deaths:0,death:[],pres:{blue:[],red:[]},arms:{}};
+  LRN={matches:d.matches||0,deaths:d.deaths||0,death:dec(d.death),pres:{blue:dec(d.pres&&d.pres.blue),red:dec(d.pres&&d.pres.red)},arms:d.arms||{}};learnDerive()}
+function learnSave(){if(!LRN)return;const enc=f=>{const o=[];for(let i=0;i<TN;i++)if(f[i]>.05)o.push([i,Math.round(f[i]*100)/100]);return o};
+  try{localStorage.setItem(LEARN_KEY,JSON.stringify({v:1,tn:TN,matches:LRN.matches,deaths:LRN.deaths,death:enc(LRN.death),pres:{blue:enc(LRN.pres.blue),red:enc(LRN.pres.red)},arms:LRN.arms}))}catch(e){}}
+function learnReset(){try{localStorage.removeItem(LEARN_KEY)}catch(e){}learnInit();if(G)learnStart();log('tip','AIの学習データをリセットした')}
+// normalised danger map and the enemy hotspots used this match
+function learnDerive(){const D=LRN.death;let mx=0;for(let c=0;c<TN;c++)if(D[c]>mx)mx=D[c];const lim=Math.max(3,mx*.6);LRN.dn=new Float32Array(TN);for(let c=0;c<TN;c++)LRN.dn[c]=Math.min(1,D[c]/lim);
+  LRN.hot={};for(const team of ['blue','red']){const P=LRN.pres[team];const cand=[];for(let c=0;c<TN;c++)if(P[c]>2&&TSTAND[c])cand.push(c);cand.sort((a,b)=>P[b]-P[a]);
+    const hot=[];for(const c of cand){if(hot.length>=5)break;if(hot.some(h=>Math.hypot(h.x-TX[c],h.y-TY[c])<7*M))continue;hot.push({x:TX[c],y:TY[c],w:Math.min(1,P[c]/(P[cand[0]]||1))})}LRN.hot[team]=hot}}
+const ownIdx=(team,c)=>team==='blue'?c:MIRC[c];
+const dangerAt=(team,x,y)=>LRN?LRN.dn[ownIdx(team,tci(x,y))]:0;
+function learnArm(team,style){const k=team+':'+style;const A=LRN.arms[k]||(LRN.arms[k]={});for(const a of ARMS)A[a]=A[a]||{n:0,v:.5};
+  let pick=ARMS[1];if(Math.random()<.2)pick=ARMS[(Math.random()*3)|0];else{let bv=-1;for(const a of ARMS){const s=A[a].n?A[a].v:.55;if(s>bv){bv=s;pick=a}}}return pick}
+function learnStart(){for(const team of ['blue','red']){const T=G.T[team];const tk=G.units.find(u=>u.team===team&&u.role==='tank');const st=tk&&tk.id==='sigma'?'poke':'brawl';T.armKey=team+':'+st;T.arm=learnArm(team,st);T.aggr=+T.arm}}
+function learnFight(team,T){if(!LRN||T.fk0==null)return;const k=(team==='blue'?G.bk:G.rk)-T.fk0,d=(team==='blue'?G.rk:G.bk)-T.fd0;T.fk0=null;if(k+d===0)return;
+  const A=LRN.arms[T.armKey];if(!A||!A[T.arm])return;const r=(k+.5)/(k+d+1);const a=A[T.arm];a.n++;a.v+=(r-a.v)/Math.min(a.n,20)}
+function learnTick(dt){if(!LRN)return;G.lrT=(G.lrT||0)-dt;if(G.lrT>0)return;G.lrT=1;
+  for(const team of ['blue','red'])for(const [e,k] of G.K[team]){if(e.dead||e.summon||G.el-k.t>.3)continue;LRN.pres[team][tci(k.x,k.y)]+=e.ctrl==='player'?3:1}}
+function learnDeath(t){if(!LRN||t.summon)return;const c=tci(t.x,t.y);const cx=c%TW,cy=(c/TW)|0;
+  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const X=cx+dx,Y=cy+dy;if(X<0||Y<0||X>=TW||Y>=TH_)continue;LRN.death[ownIdx(t.team,Y*TW+X)]+=dx||dy?.4:1}LRN.deaths++}
+function learnEnd(){if(!LRN)return;for(const team of ['blue','red']){const T=G.T[team];if(T.ts==='engage')learnFight(team,T)}
+  LRN.matches++;for(const f of [LRN.death,LRN.pres.blue,LRN.pres.red])for(let i=0;i<TN;i++)f[i]*=.92; // older matches fade
+  learnSave();learnDerive();updLearnUI()}
+function updLearnUI(){const el=document.getElementById('learn');if(!el||!LRN)return;const arm=t=>{const T=G&&G.T[t];if(!T||!T.armKey)return'—';const A=LRN.arms[T.armKey]||{};const a=A[T.arm];return `×${T.arm}（勝率 ${a&&a.n?Math.round(a.v*100)+'%':'—'}）`};
+  el.innerHTML=`学習した試合 <b>${LRN.matches}</b> ・ 記録したデス <b>${LRN.deaths}</b><br>攻め度 味方 ${arm('blue')} ・ 敵 ${arm('red')}<br>敵AIが覚えたあなたの居場所 <b>${(LRN.hot.red||[]).length}</b> か所`}
 // ---------------- AI ----------------
 // How the bots play (both teams):
 //  * information: a side only knows enemies one of its heroes has seen, heard close by or been shot by (no wallhacks)
@@ -1217,9 +1320,11 @@ function updThreat(dt){
   G.thrT=(G.thrT||0)-dt;if(G.thrT>0)return;G.thrT=.15;thrPhase^=1;const team=thrPhase?'blue':'red';
   const T=THR[team];T.fill(0);
   const bars=G.barriers.filter(b=>b.team===team&&b.hp>0&&b.kind!=='grasp').map(barrierSeg);
-  for(const [e,k] of G.K[team]){if(e.dead)continue;const age=G.el-k.t;if(age>3)continue;
+  const alive=G.units.filter(e=>e.team!==team&&!e.dead&&!e.summon).length,seen=knownFoes(team,3).filter(e=>!e.summon).length;
+  const pseudo=LRN&&seen<alive?(LRN.hot[team]||[]).map(h=>[{id:'_hot',role:'damage',st:{},ult:0,d:{ult:1},summon:false},{x:h.x,y:h.y,t:G.el-1.5,w:.35*h.w*(alive-seen)/Math.max(1,alive)}]):[];
+  for(const [e,k] of [...G.K[team],...pseudo]){if(e.dead)continue;const age=G.el-k.t;if(age>3)continue;
     const R=(RANGE_M[e.id]||30)*M;const dis=e.st.sleep>0||e.st.frozen>0||e.st.stun>0||e.st.lift>0;
-    const w=(THREAT_W[e.role]||1)*(age<1?1:.55)*(dis?.25:1)*(e.ult>=e.d.ult?1.15:1)*(e.summon?1.3:1);
+    const w=(k.w??1)*(THREAT_W[e.role]||1)*(age<1?1:.55)*(dis?.25:1)*(e.ult>=e.d.ult?1.15:1)*(e.summon?1.3:1);
     const ex=k.x,ey=k.y;const c0x=Math.max(0,((ex-R)/TC)|0),c1x=Math.min(TW-1,((ex+R)/TC)|0),c0y=Math.max(0,((ey-R)/TC)|0),c1y=Math.min(TH_-1,((ey+R)/TC)|0);
     for(let cy=c0y;cy<=c1y;cy++)for(let cx=c0x;cx<=c1x;cx++){const c=cy*TW+cx;if(!TSTAND[c])continue;const x=TX[c],y=TY[c];const dx=x-ex,dy=y-ey,d=Math.sqrt(dx*dx+dy*dy);if(d>R)continue;
       if(!fastLos(ex,ey,x,y))continue;let blocked=false;for(const s of bars)if(segX(ex,ey,x,y,s[0],s[1],s[2],s[3])){blocked=true;break}if(blocked)continue;
@@ -1312,21 +1417,23 @@ function teamBrain(dt){
     const unlocking=G.cp.locked>0&&G.cp.locked<7;
     const tank=my.find(u=>u.role==='tank');
     const say=(c,t)=>{if(team==='blue'&&(G.call==='auto'||G.call==='push'))log(c,t)};
+    // the whole team commits the moment the doors open
+    if(G.cp.locked<=0&&!T.started){T.started=1;T.ts='engage';T.fk0=team==='blue'?G.bk:G.rk;T.fd0=team==='blue'?G.rk:G.bk;say('good','味方AI：開始、全員でポイントへ')}
     if(T.ts==='engage'){
       // lost the fight: reset together instead of feeding one by one (unless the objective forces a contest)
       const pm=teamPower(my,null),pe=teamPower(en,team);T.pow=[pm,pe];
-      const lost=my.length<=2&&en.length>=3||my.length+1<en.length||(!tank&&my.length<en.length&&G.units.some(u=>u.team===team&&u.role==='tank'&&u.dead>3))||(my.length<en.length&&pm<pe*.72);
-      if(!urgent&&lost){T.ts='stage';T.retreat=G.el;say('tip',my.length<en.length?'味方AI：人数不利、下がって5人でリグループ':'味方AI：戦力負け、いったん引いて立て直す')}
+      const lost=my.length<=2&&en.length>=3||my.length+1<en.length||(!tank&&my.length<en.length&&G.units.some(u=>u.team===team&&u.role==='tank'&&u.dead>3))||(my.length<en.length&&pm<pe*.72/(T.aggr||1));
+      if(!urgent&&lost){learnFight(team,T);T.ts='stage';T.retreat=G.el;say('tip',my.length<en.length?'味方AI：人数不利、下がって5人でリグループ':'味方AI：戦力負け、いったん引いて立て直す')}
     }else{
       let go=near>=4||(my.length===5&&near>=3)||unlocking&&near>=3;
       if(!go&&near>=3&&my.length>=en.length+1)go=true;                  // numbers advantage
-      if(!go&&near>=3&&teamPower(my,null)>=teamPower(en,team)*1.25)go=true; // they are hurt / out of ults
+      if(!go&&near>=3&&teamPower(my,null)>=teamPower(en,team)*1.25/(T.aggr||1))go=true; // they are hurt / out of ults
       if(!go&&near>=3&&ultM>=2&&ultE<=1)go=true;                           // ult advantage
       if(urgent&&near>=2)go=true;                                          // must touch
       if(go&&soon&&!urgent&&(ultE>ultM||my.length<en.length))go=false;      // wait for the respawn
       if(go&&G.cp.locked>6)go=false;                                       // point still locked: hold the stage
       if(go&&T.retreat&&G.el-T.retreat<4&&!urgent)go=false;                // no instant re-feed after a reset
-      if(go){T.ts='engage';say('good',ultM>=2?'味方AI：ウルト有利、今エントリー':urgent?'味方AI：相手が99%に近い、ポイントに触る':'味方AI：そろった、エントリー')}
+      if(go){T.ts='engage';T.fk0=team==='blue'?G.bk:G.rk;T.fd0=team==='blue'?G.rk:G.bk;say('good',ultM>=2?'味方AI：ウルト有利、今エントリー':urgent?'味方AI：相手が99%に近い、ポイントに触る':'味方AI：そろった、エントリー')}
     }
     const enNear=knownFoes(team,2).filter(e=>!e.summon&&Math.hypot(e.x-N.point.px,e.y-N.point.py)<22*M).length;
     const prev=T.adv;T.adv=T.ts==='engage'&&G.cp.locked<=0&&(my.length>=en.length+1||enOn===0&&enNear===0&&my.length>=en.length||urgent||en.length===0);
@@ -1410,6 +1517,7 @@ function spotScore(u,c,an,tgt,mode,x,y){
   let s=-Math.hypot(x-an.x,y-an.y)/M*(an.kind==='point'?2.2:1)-Math.hypot(x-u.x,y-u.y)/M*.3;
   if(an.kind==='point')s+=onCap(x,y,-.6*M)?18:-10;
   const hz=hazardAt(u,x,y);if(hz)s-=hz*35;
+  if(mode!=='escape')s-=dangerAt(team,x,y)*4; // learned: people keep dying here
   if(u.ai.pos&&Math.hypot(x-u.ai.pos.x,y-u.ai.pos.y)<M)s+=1.5; // hysteresis: don't twitch between equal spots
   if(mode==='hide'||mode==='escape'){
     s-=th*(mode==='escape'?45:30)+coverAt(TH,x,y,1)*5;
@@ -1422,7 +1530,7 @@ function spotScore(u,c,an,tgt,mode,x,y){
       // a clean shot, not one that clips the corner I am peeking from: test the body edges too
       let clean=1;if(see){const L=Math.hypot(tgt.x-x,tgt.y-y)||1,px=-(tgt.y-y)/L*R_HIT*.9,py=(tgt.x-x)/L*R_HIT*.9;if(!fastLos(x+px,y+py,tgt.x+px,tgt.y+py))clean-=.35;if(!fastLos(x-px,y-py,tgt.x-px,tgt.y-py))clean-=.35}
       if(see)s+=(16-Math.max(0,d-P.rng)*1.5-Math.max(0,P.min-d)*1.2)*clean;else s-=u.role==='support'?1:4}
-    const tol=P.tol*(u.st.nano>0?2:1)*(hpFrac(u)<.6?.6:1)*(an.kind==='point'?1.6:1)*(c.passive&&u.role!=='tank'?.6:1);
+    const tol=P.tol*(G.T[team].aggr||1)*(u.st.nano>0?2:1)*(hpFrac(u)<.6?.6:1)*(an.kind==='point'?1.6:1)*(c.passive&&u.role!=='tank'?.6:1);
     s-=Math.max(0,th-tol)*(u.role==='tank'?5:10)+th*1.2;
     if(P.peek&&th>0)s-=coverAt(TH,x,y,2)*7; // a hiding spot one step away
   }
@@ -1444,6 +1552,10 @@ function tactics(u,c){
   const now=G.el,el=Math.min(1,now-(u.ai.tT??now));u.ai.tT=now;
   const hpf=hpFrac(u);const here=TH[tci(u.x,u.y)];const burst=(c.incoming||0)/Math.max(1,totalMax(u));
   c.aoeUlt=c.foesAll.some(f=>f.ult>=f.d.ult&&AOE_ULT[f.id]);
+  if(G.cp.locked>0&&inSpawn(u)){u.ai.mode='wait';const S=SPAWNS[team];const ds=S.door.filter(d=>d.edge&&(u.id==='tracer'?!d.hall:d.hall));
+    // line up just inside the door this hero will leave by
+    if(ds.length){const d=ds[(G.units.indexOf(u)*3)%ds.length];const inward=team==='blue'?-1:1;const px=d.c*CELL+CELL/2,py=d.r*CELL+CELL/2+inward*(d.hall?7:2)*M;
+      const q=bestSpot(u,px,py,2.5,(x,y)=>-Math.hypot(x-px,y-py)/M-(SPAWNC[cellOf(x,y)]!==TEAMCODE[team]?99:0));if(q){u.ai.pos=q;goTo(u,q,0)}}return}
   c.healer=healerFor(u,c);c.ebars=G.barriers.filter(b=>b.team!==team&&b.hp>0&&b.kind!=='grasp').map(barrierSeg);
   // the user's turn rule: while our key cooldowns are spent we play passive (hold cover, trade only at safe angles)
   c.passive=T.turn===false&&!urgentFor(team)&&!(u.st.nano>0);
@@ -1496,6 +1608,7 @@ function goTo(u,pos,risk){if(Math.hypot(pos.x-u.x,pos.y-u.y)<10&&pos.l===u.l){u.
   u.pathT=G.el;if(!pathTo(u,pos.x,pos.y,pos.l,risk)){u.path=[];u.ai.pos=null;u.ai.mt=Math.min(u.ai.mt||0,G.el+.15)}}
 function aiAct(u,dt){
   if(incapped(u))return;const k=KIT[u.id];
+  if(u.ai.aim&&u.aimX===u.ai.ax&&u.aimY===u.ai.ay)aimTrack(u,dt);
   {const t0=u.ai.c&&u.ai.c.tgt;if(t0&&D2(t0,u)<2.4*M&&(totalHp(t0)<=40||u.reload>0||u.role==='tank')){u.aimX=t0.x;u.aimY=t0.y;melee(u)}}
   if(u.ai.f1&&k.lmb)k.lmb(u);
   if(u.ai.f2&&k.rmb&&RMB_MODE[u.id]==='hold')k.rmb(u);
@@ -1540,7 +1653,7 @@ function stepObjective(dt){updFocus();
   const inPt=u=>onCap(u.x,u.y)&&u.l===0;
   const on={blue:live.filter(u=>u.team==='blue'&&inPt(u)).length,red:live.filter(u=>u.team==='red'&&inPt(u)).length};
   G.onB=on.blue;G.contested=!!(on.blue&&on.red);
-  if(cp.locked>0){cp.locked-=dt;if(cp.locked<=0){cp.locked=0;log('good','ポイントが解放された')}return}
+  if(cp.locked>0){cp.locked-=dt;if(cp.locked<=0){cp.locked=0;log('good','試合開始！ドアが開きポイントが解放された')}return}
   const mul=n=>n>=3?2:n===2?1.5:n?1:0;
   const solo=on.blue&&!on.red?'blue':on.red&&!on.blue?'red':null;
   if(solo&&solo!==cp.owner){if(cp.capTeam!==solo){cp.capTeam=solo;cp.capProg=0}cp.capProg+=100/CAP_TIME*mul(on[solo])*dt;
@@ -1563,7 +1676,7 @@ function coach(dt){
   const ultB=bl.filter(b=>b.ult>=b.d.ult).map(b=>b.d.short);if(ultB.length>=2)tip('ults',`${ultB.join('・')}のウルトが溜まっている。合わせて使えば一気に取れる。`,25);
   const ultR=rd.filter(r=>r.ult>=r.d.ult).map(r=>r.d.short);if(ultR.length)tip('ultr',`敵の${ultR.join('・')}がウルトを持っている。固まりすぎに注意。`,25);
 }
-function end(r){G.over=r;running=false;const ov=document.getElementById('ov');ov.hidden=false;
+function end(r){G.over=r;running=false;learnEnd();const ov=document.getElementById('ov');ov.hidden=false;
   document.getElementById('ovT').textContent=r==='win'?'勝利':'敗北';
   document.getElementById('ovP').textContent=`味方 ${Math.floor(G.cp.pct.blue)}% ・ 敵 ${Math.floor(G.cp.pct.red)}% ・ 試合時間 ${fmt(G.el)} ・ キル ${G.bk} / デス ${G.rk}`;
   document.getElementById('start').textContent='もう一度';
@@ -1590,7 +1703,7 @@ function step(dt){
   // teammates don't stack on one spot
   const lv=G.units.filter(u=>!u.dead);for(let i=0;i<lv.length;i++)for(let j=i+1;j<lv.length;j++){const a=lv[i],b=lv[j];if(a.team!==b.team||a.l!==b.l)continue;const d=D2(a,b);if(d<20){const px=d>0.01?(a.x-b.x)/d:rnd(-1,1),py=d>0.01?(a.y-b.y)/d:rnd(-1,1);const k=(20-d)*0.25;
     if(a.ctrl!=='player'){const nx=a.x+px*k,ny=a.y+py*k;if(canStand(a.l,cellOf(nx,ny),a.d.mob,a.team)){a.x=nx;a.y=ny}}if(b.ctrl!=='player'){const nx=b.x-px*k,ny=b.y-py*k;if(canStand(b.l,cellOf(nx,ny),b.d.mob,b.team)){b.x=nx;b.y=ny}}}}
-  stepPerks();stepPacks(dt);updKnow(dt);updThreat(dt);teamBrain(dt);stepFields(dt);stepProjs(dt);stepObjective(dt);coach(dt);
+  stepPerks();stepPacks(dt);updKnow(dt);learnTick(dt);updThreat(dt);teamBrain(dt);stepFields(dt);stepProjs(dt);stepObjective(dt);coach(dt);
   for(const f of G.fx)f.t-=dt;G.fx=G.fx.filter(f=>f.t>0);G.hurt.forEach(h=>h.t-=dt);G.kf.forEach(k=>k.t-=dt);G.kf=G.kf.filter(k=>k.t>0);G.hurt=G.hurt.filter(h=>h.t>0);G.hitT-=dt;G.killT-=dt;
   if(G.cp.pct.blue>=100)end('win');else if(G.cp.pct.red>=100)end('lose');
 }
@@ -1622,11 +1735,11 @@ let uiT=0;
 function updUI(dt){
   uiT-=dt;if(uiT>0||!G)return;uiT=.1;const u=G.player;
   {const T=G.T.blue||{};const el=document.getElementById('tstate');const pw=T.pow?` ・ 戦力 ${T.pow[0].toFixed(1)} vs ${T.pow[1].toFixed(1)}`:'';
-    const st=G.call!=='auto'?{group:'あなたについていく',push:'ポイントへ突撃',hold:'その場で待機',retreat:'後退中'}[G.call]:G.cp.locked>0?'解放待ち：集合地点で待機':T.ts==='engage'?(T.adv?'有利：ポイントに乗る':(T.turn===false?'交戦中（スキル待ち・受け）':'交戦中')):T.retreat&&G.el-T.retreat<25?'リグループ中（負けた戦闘から撤退）':'集合中：そろったら入る';
+    const st=G.call!=='auto'?{group:'あなたについていく',push:'ポイントへ突撃',hold:'その場で待機',retreat:'後退中'}[G.call]:G.cp.locked>0?`スポーンで待機（開始まで ${Math.ceil(G.cp.locked)}秒）`:T.ts==='engage'?(T.adv?'有利：ポイントに乗る':(T.turn===false?'交戦中（スキル待ち・受け）':'交戦中')):T.retreat&&G.el-T.retreat<25?'リグループ中（負けた戦闘から撤退）':'集合中：そろったら入る';
     const f=T.focus&&!T.focus.dead?`フォーカス：${T.focus.name}`:'フォーカス：—';
     const html=`味方AI：${st}<small>${f}${pw}${T.style?' ・ '+(T.style==='brawl'?'ブロール':'ポーク'):''}</small>`;if(el.innerHTML!==html)el.innerHTML=html}
   if(u){const sig=(u.perkNeed||'')+(u.plv||1)+JSON.stringify(u.perks||{})+Math.floor((u.pxp||0)/50);if(sig!==G.pbSig){G.pbSig=sig;buildPerkBar()}}
-  document.getElementById('time').textContent=G.cp.locked>0?`解放 ${Math.ceil(G.cp.locked)}`:G.ot?'OT':fmt(G.el);document.getElementById('cap').textContent=`${Math.floor(G.cp.pct.blue)}% - ${Math.floor(G.cp.pct.red)}%`;document.getElementById('capbar').style.width=G.cp.pct.blue+'%';document.getElementById('kd').textContent=`${G.bk} - ${G.rk}`;
+  document.getElementById('time').textContent=G.cp.locked>0?`開始 ${Math.ceil(G.cp.locked)}`:G.ot?'OT':fmt(G.el);document.getElementById('cap').textContent=`${Math.floor(G.cp.pct.blue)}% - ${Math.floor(G.cp.pct.red)}%`;document.getElementById('capbar').style.width=G.cp.pct.blue+'%';document.getElementById('kd').textContent=`${G.bk} - ${G.rk}`;
   if(u){const tm=Math.max(totalMax(u),totalHp(u));const hp=document.getElementById('meHp');hp.innerHTML=`<i style="width:${u.hp/tm*100}%;background:${u.hp/u.d.hp<.35?'var(--red)':'#f4f7f8'}"></i><i style="width:${u.armor/tm*100}%;background:var(--armor)"></i><i style="width:${u.shield/tm*100}%;background:var(--shield)"></i><i style="width:${overSum(u)/tm*100}%;background:var(--green)"></i>`;
     document.getElementById('meHpT').innerHTML=`<b>${Math.ceil(totalHp(u))}</b> / ${totalMax(u)}`;
     let am=u.d.ammo?`弾 ${u.ammo}/${u.d.ammo}${u.reload>0?' リロード中':''}`:'';if(u.id==='kiriko')am+=` ・クナイ ${u.ammo2}/15`;if(u.id==='sojourn')am+=` ・エネルギー ${Math.floor(u.energy)}`;if(u.id==='tracer')am+=` ・ブリンク ${u.charges}`;if(u.id==='lucio')am+=` ・曲：${u.mode==='speed'?'スピード':'ヒール'}`;if(u.id==='mizuki')am+=` ・傘 ${u.kasa??2}`;
@@ -1673,6 +1786,7 @@ document.getElementById('zoom').onclick=e=>{zoomAll=!zoomAll;e.target.classList.
 document.getElementById('aimb').onclick=e=>{autoAim=!autoAim;e.target.textContent='オートエイム '+(autoAim?'ON':'OFF');e.target.classList.toggle('on',autoAim)};
 document.getElementById('walkv').onclick=e=>{showWalk=!showWalk;e.target.classList.toggle('on',showWalk)};
 document.getElementById('thrv').onclick=e=>{showThr=!showThr;e.target.classList.toggle('on',showThr)};
+document.getElementById('learnReset').onclick=()=>{learnReset();updLearnUI()};
 document.getElementById('aiv').onclick=e=>{showAI=!showAI;e.target.classList.toggle('on',showAI)};
 document.getElementById('aiv').classList.add('on');
 document.querySelectorAll('[data-call]').forEach(b=>b.onclick=()=>G&&setCall(b.dataset.call));
@@ -1690,8 +1804,9 @@ function buildTeams(){const el=document.getElementById('teams');el.innerHTML='';
     b.onclick=()=>{pickId=id;buildTeams()};pk.appendChild(b)});
 }
 buildTeams();
-document.querySelectorAll('#diff button').forEach(b=>b.onclick=()=>{const v={easy:[1.2,.3],normal:[.75,.2],hard:[.45,.14],pro:[.3,.1]}[b.dataset.d];PROF.red.err=v[0];PROF.red.react=v[1];document.querySelectorAll('#diff button').forEach(x=>x.classList.toggle('on',x===b))});
-document.getElementById('restart').onclick=()=>{running=false;paused=false;const ov=document.getElementById('ov');ov.hidden=false;document.getElementById('ovT').textContent='操作するヒーローを選ぶ';document.getElementById('ovS').innerHTML='';document.getElementById('ovP').textContent='ヒーローと難易度を選んでスタート。';document.getElementById('start').textContent='スタート'};
+document.querySelectorAll('#diff button').forEach(b=>b.onclick=()=>{const v={easy:[2,.3],normal:[1.3,.2],hard:[.9,.16],pro:[.6,.12]}[b.dataset.d];PROF.red.err=v[0];PROF.red.react=v[1];document.querySelectorAll('#diff button').forEach(x=>x.classList.toggle('on',x===b))});
+addEventListener('pagehide',()=>learnSave());
+document.getElementById('restart').onclick=()=>{learnSave();running=false;paused=false;const ov=document.getElementById('ov');ov.hidden=false;document.getElementById('ovT').textContent='操作するヒーローを選ぶ';document.getElementById('ovS').innerHTML='';document.getElementById('ovP').textContent='ヒーローと難易度を選んでスタート。';document.getElementById('start').textContent='スタート'};
 document.getElementById('start').onclick=()=>{document.getElementById('ovS').innerHTML='';init();document.getElementById('ov').hidden=true;running=true;paused=false;last=performance.now();resize()};
 
 let last=performance.now();
