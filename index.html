@@ -215,7 +215,8 @@ let walkPic=null;
 // openings cut into the layout's wall lines (layout px; each one is mirrored onto the red half).
 // ENTRANCES: the two side rooms by the market get a door toward their own side; SPAWN_CUTS: the spawn exits.
 const ENTRANCES=[{x0:362,y0:358,x1:404,y1:373},{x0:425,y0:412,x1:466,y1:427},
-  {x0:337,y0:175,x1:364,y1:190}]; // the health-pack room north of the market opens toward its own spawn, like the red one does
+  {x0:337,y0:175,x1:364,y1:190}, // (point doors below)
+  {x0:580,y0:489,x1:634,y1:505}]; // the point pavilion: a door in the middle of its north wall (and the south one, mirrored); the health-pack room north of the market opens toward its own spawn, like the red one does
 // wall lines added to the layout (mirrored as well): the health-pack room's back wall, so the blue one matches the red one
 const EXTRA_SEGS=[[335,232,366,232]];
 const SPAWN_CUTS=[{x0:198,y0:0,x1:240,y1:20},{x0:372,y0:0,x1:414,y1:56}];
@@ -263,7 +264,7 @@ function buildNav(){
   const oc=document.createElement('canvas');oc.width=GW;oc.height=GH;const og=oc.getContext('2d');const im=og.createImageData(GW,GH);
   for(let i=0;i<GN;i++){if(LY[0][i]===1)im.data.set(SPAWNC[i]?[120,200,255,40]:[255,170,110,26],i*4)}
   og.putImageData(im,0,0);walkPic=oc;
-  buildComponents();
+  buildComponents();buildWidth();
   buildThreatGrid();
 }
 // connected floor regions: walkable pockets that can't be reached from the point are never picked as destinations
@@ -276,6 +277,22 @@ function buildComponents(){COMP.fill(0);let id=0;const q=new Int32Array(GN);let 
     if(t>bestN){bestN=t;best=id}}
   MAINC=best}
 const reachable=i=>COMP[i]===MAINC;
+// corridor width: walking distance (cells) from each floor cell to the nearest wall
+const WID=new Uint8Array(GN);
+function buildWidth(){const q=new Int32Array(GN);let h=0,t=0;WID.fill(255);for(let i=0;i<GN;i++)if(LY[0][i]!==1){WID[i]=0;q[t++]=i}
+  while(h<t){const i=q[h++];const gx=i%GW,gy=(i/GW)|0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=gx+dx,ny=gy+dy;if(nx<0||ny<0||nx>=GW||ny>=GH)continue;const j=ny*GW+nx;if(WID[j]>WID[i]+1){WID[j]=WID[i]+1;q[t++]=j}}}}
+// chokepoints a team holds forward while it owns the point: on each way the attackers can walk in (from both of their
+// spawn doors, their stage and the flank room), the narrowest spot 11-27 m out from the point; the hold spot is a few
+// metres behind it on the defenders' side
+function buildChokes(){for(const team of ['blue','red']){const att=team==='blue'?'red':'blue';const S=SPAWNS[att];const starts=S.door.filter(d=>d.edge).map(d=>({x:ccx(d.i),y:ccy(d.i)}));
+  const st=nodeOf(att,'stage'),km=nodeOf(att,'kitMid');starts.push({x:st.px,y:st.py},{x:km.px,y:km.py});
+  const ti=nearestStand(N.point.px,N.point.py,0,false,20,att,true);const out=[];
+  for(const s0 of starts){const si=nearestStand(s0.x,s0.y,0,false,20,att,true);if(si<0||ti<0)continue;const cells=astar({i:si,l:0},{i:ti,l:0},false,att,0);if(!cells)continue;
+    let best=-1,bw=1e9;for(let k=0;k<cells.length;k++){const i=cells[k].i;const d=Math.hypot(ccx(i)-N.point.px,ccy(i)-N.point.py)/M;if(d<11||d>27)continue;const w=WID[i]+d*.02;if(w<bw){bw=w;best=k}}
+    if(best<0)continue;const c=cells[best].i;const hb=cells[Math.min(cells.length-1,best+Math.round(4*M/CELL))].i; // ~4 m further along, toward the point
+    const ch={x:ccx(c),y:ccy(c),hx:ccx(hb),hy:ccy(hb),w:WID[c]};if(!out.some(o=>Math.hypot(o.x-ch.x,o.y-ch.y)<6*M))out.push(ch)}
+  CHOKES[team]=out}}
+const CHOKES={blue:[],red:[]};
 const EYE=new Uint8Array(GN); // 1 = a wall at standing eye height (static line-of-sight blocker)
 const WALLC=new Uint8Array(GN);
 const TEAMCODE={blue:1,red:2};
@@ -1072,10 +1089,12 @@ function draw(dt){
       if(b.kind!=='grasp'){ctx.fillStyle='#fff';ctx.font='700 10px "JetBrains Mono",monospace';ctx.textAlign='center';ctx.fillText(Math.ceil(b.hp),b.x,b.y-hz-4)}}
   }
   // enemies we lost sight of: a fading marker where the team last saw them (what the allied bots are working from)
-  for(const [e,k] of G.K.blue){if(e.dead||VIS.has(e)||e.summon)continue;const age=G.el-k.t;if(age>4)continue;ctx.globalAlpha=Math.max(0,.55-age*.12);
+  for(const [e,k] of G.K.blue){if(e.dead||VIS.has(e)||e.summon)continue;const age=G.el-k.t;if(age>4)continue;ctx.globalAlpha=Math.max(0,.8-age*.15);
     ctx.strokeStyle='#ff5d62';ctx.setLineDash([3,3]);ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(k.x,k.y-9,12,0,7);ctx.stroke();ctx.setLineDash([]);
     ctx.save();ctx.beginPath();ctx.arc(k.x,k.y-9,10,0,7);ctx.clip();if(IMG[e.id]&&IMG[e.id].complete)ctx.drawImage(IMG[e.id],k.x-10,k.y-19,20,20);ctx.restore();
     ctx.fillStyle='#ffd0d0';ctx.font='700 9px "JetBrains Mono",monospace';ctx.textAlign='center';ctx.fillText(age<1?'?':Math.floor(age)+'s',k.x,k.y+9);ctx.globalAlpha=1}
+  // spotted enemies get a red outline on top of everything, so a wall in front never hides someone the team can see
+  for(const u of G.units){if(u.team!=='red'||u.dead||!VIS.has(u))continue;const zo=(u.z||0)*ZP;ctx.save();ctx.shadowColor='#ff2a36';ctx.shadowBlur=10;ctx.strokeStyle='rgba(255,80,90,.9)';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(u.x,u.y-zo-9,16,0,7);ctx.stroke();ctx.restore()}
   // allies are always outlined, even behind walls (like the original)
   for(const u of focus){const zo=(u.z||0)*ZP;ctx.strokeStyle=u===p?'rgba(242,179,61,.75)':'rgba(79,179,255,.6)';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(u.x,u.y-zo-9,13,0,7);ctx.stroke()}
   // projectiles and tracers glow
@@ -1094,7 +1113,7 @@ function draw(dt){
   if(p&&p.path.length){ctx.strokeStyle='rgba(242,179,61,.6)';ctx.setLineDash([3,6]);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(p.x,p.y);p.path.forEach(q=>ctx.lineTo(q.x,q.y));ctx.stroke();ctx.setLineDash([])}
   drawHud(p);
 }
-const AI_LABEL={fight:['交戦','#ffd9a0'],hide:['遮蔽','#9fe3ff'],escape:['退避','#ff9a9a'],regroup:['集合','#c9d6dd'],join:['合流','#c9d6dd'],evade:['回避','#e7b3ff'],move:['裏取り','#b8ff6b'],point:['ポイント','#f2d38a'],wait:['待機','#c9d6dd'],dive:['奇襲','#b8ff6b']};
+const AI_LABEL={fight:['交戦','#ffd9a0'],hide:['遮蔽','#9fe3ff'],escape:['退避','#ff9a9a'],regroup:['集合','#c9d6dd'],join:['合流','#c9d6dd'],evade:['回避','#e7b3ff'],move:['裏取り','#b8ff6b'],point:['ポイント','#f2d38a'],wait:['待機','#c9d6dd'],hold:['前守り','#9fe3ff'],dive:['奇襲','#b8ff6b']};
 function drawUnit(u){
   const col=u.team==='blue'?'#4fb3ff':'#ff5d62';const fz=floorZ(u.x,u.y,u.l);const zo=(u.z||0)*ZP;
   ctx.fillStyle='rgba(0,0,0,.38)';ctx.beginPath();ctx.ellipse(u.x+2,u.y-fz*ZP+3,11,6,0,0,7);ctx.fill();
@@ -1108,6 +1127,8 @@ function drawUnit(u){
     if(u.st.inv>0||u.st.cryo>0){ctx.fillStyle=u.st.cryo>0?'rgba(191,232,255,.8)':'rgba(255,226,138,.55)';ctx.beginPath();ctx.arc(0,0,15,0,7);ctx.fill()}
     if(!u.summon&&u.ult>=u.d.ult){ctx.strokeStyle='rgba(242,179,61,.9)';ctx.lineWidth=1.5;ctx.setLineDash([2,3]);ctx.beginPath();ctx.arc(0,0,19,0,7);ctx.stroke();ctx.setLineDash([])}
     if(u.st.nano>0){ctx.strokeStyle='#7fd3ff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,14,0,7);ctx.stroke()}
+    if(u.team==='red'){const pl=.55+.25*Math.sin(performance.now()/180);ctx.save();ctx.shadowColor='#ff2a36';ctx.shadowBlur=14;ctx.strokeStyle=`rgba(255,70,80,${pl+.2})`;ctx.lineWidth=3.5;ctx.beginPath();ctx.arc(0,0,15,0,7);ctx.stroke();ctx.restore();
+      ctx.fillStyle='#ff4652';ctx.beginPath();ctx.moveTo(-5,-31);ctx.lineTo(5,-31);ctx.lineTo(0,-25);ctx.closePath();ctx.fill()}
     ctx.fillStyle=col;ctx.beginPath();ctx.arc(0,0,12,0,7);ctx.fill();
     ctx.save();ctx.beginPath();ctx.arc(0,0,10.5,0,7);ctx.clip();if(IMG[u.id]&&IMG[u.id].complete)ctx.drawImage(IMG[u.id],-10.5,-10.5,21,21);ctx.restore();
     ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(Math.cos(u.face)*12,Math.sin(u.face)*12+9);ctx.lineTo(Math.cos(u.face)*19,Math.sin(u.face)*19+9);ctx.stroke()}
@@ -1147,7 +1168,7 @@ function drawHud(p){
     for(const b of BOX)if(b.kind==='bldg'||b.kind==='wall'||b.kind==='slab'){ctx.fillStyle=b.kind==='slab'?'rgba(120,200,255,.45)':'rgba(30,20,15,.8)';ctx.fillRect(mx0+b.x*M*ms,my0+b.y*M*ms,b.w*M*ms,b.h*M*ms)}
     ctx.strokeStyle='#27404a';ctx.lineWidth=1;ctx.strokeRect(mx0,my0,mw,mh);
     ctx.strokeStyle=G.cp.owner==='blue'?'#4fb3ff':G.cp.owner==='red'?'#ff5d62':'#f2d38a';ctx.lineWidth=1.5;ctx.strokeRect(mx0+CAP.x0*ms,my0+CAP.y0*ms,(CAP.x1-CAP.x0)*ms,(CAP.y1-CAP.y0)*ms);ctx.lineWidth=1;
-    for(const u of G.units){if(u.dead)continue;if(u.team==='red'&&!VIS.has(u))continue;ctx.fillStyle=u===p?'#f2b33d':u.team==='blue'?'#4fb3ff':'#ff5d62';ctx.beginPath();ctx.arc(mx0+u.x*ms,my0+u.y*ms,u===p?3.5:2.8,0,7);ctx.fill()}
+    for(const u of G.units){if(u.dead)continue;if(u.team==='red'&&!VIS.has(u))continue;ctx.fillStyle=u===p?'#f2b33d':u.team==='blue'?'#4fb3ff':'#ff5d62';ctx.beginPath();ctx.arc(mx0+u.x*ms,my0+u.y*ms,u===p?3.5:u.team==='red'?3.6:2.8,0,7);ctx.fill();if(u.team==='red'){ctx.strokeStyle='#fff';ctx.lineWidth=1;ctx.stroke()}}
     ctx.strokeStyle='rgba(255,255,255,.5)';ctx.strokeRect(mx0+(camX-VW/2/scale)*ms,my0+(camY-VH/2/scale)*ms,VW/scale*ms,VH/scale*ms)}
   if(p&&!p.dead)drawMyHp(p);
   if(p&&p.dead){ctx.fillStyle='rgba(0,0,0,.3)';ctx.fillRect(0,0,VW,VH);ctx.fillStyle='#ff5d62';ctx.font='700 26px "Chakra Petch",sans-serif';ctx.textAlign='center';ctx.fillText(`リスポーンまで ${Math.ceil(p.dead)}`,VW/2,VH/2);ctx.fillStyle='#e3edf0';ctx.font='500 14px "Noto Sans JP",sans-serif';ctx.fillText(`${p.killedBy||'?'} にやられた`,VW/2,VH/2+26)}
@@ -1497,6 +1518,8 @@ function anchorFor(u,c){
       if(E){const d=Math.hypot(n.px-E.x,n.py-E.y)||1;const k=Math.min(1,9*M/d);return{x:E.x+(n.px-E.x)*k,y:E.y+(n.py-E.y)*k,r:6,kind:'fight'}}
       return{x:n.px,y:n.py,r:7,kind:'fight'}}
     const n=nodeOf(team,r[u.ai.ri]);if(Math.hypot(n.px-u.x,n.py-u.y)<3*M)u.ai.ri++;return{x:n.px,y:n.py,r:3,kind:'route'}}
+  // we own the point: the tank holds the chokepoint they must come through instead of standing on the point
+  if(u.role==='tank'&&G.cp.owner===team&&!urgentFor(team)&&!(G.cp.capTeam&&G.cp.capTeam!==team)&&c.onPointFoe===0){const ch=pickChoke(team);if(ch)return{x:ch.hx,y:ch.hy,r:3,kind:'fight',hold:ch}}
   if(u.role==='tank'||u.id==='mei'){const E=T.enemyC;
     // tanks take the space in front of the point; lean toward where the enemy is
     if(E&&Math.hypot(E.x-pa.px,E.y-pa.py)<24*M){const x=pa.px+(E.x-pa.px)*.35,y=pa.py+(E.y-pa.py)*.35;return{x,y,r:7,kind:'fight'}}
@@ -1593,7 +1616,7 @@ function tactics(u,c){
     else if(pk.st==='hide'&&pk.t<=0&&!(u.reload>0)&&!tankOut&&(hpf>=(c.healer?.55:.62)||urgentFor(team)||hpf>=.45&&burst<.05&&T.ts==='engage'&&(T.pow||[1,1])[0]>=(T.pow||[1,1])[1])){pk.st='peek'}
     if(pk.st==='hide'){mode='hide';if(u.d.ammo&&u.ammo<u.d.ammo&&!c.foes.length)reloadNow(u)}}
   else if(u.ai.pk)u.ai.pk.st='peek';
-  u.ai.mode=mode==='fight'&&(an.kind==='point'||an.kind==='dive')?an.kind:mode;
+  u.ai.mode=mode==='fight'&&an.hold?'hold':mode==='fight'&&(an.kind==='point'||an.kind==='dive')?an.kind:mode;
   if(mode==='hide'){
     // supports hide where they can still see (and heal) the team
     if(u.role==='support'){const p=bestSpot(u,u.x,u.y,6,(x,y)=>spotScore(u,c,an,tgtPos,'hide',x,y));if(p){u.ai.pos=p;goTo(u,p,1.8)}return}
@@ -1602,6 +1625,11 @@ function tactics(u,c){
   const pos=bestSpot(u,an.x,an.y,an.r,(x,y)=>spotScore(u,c,an,tgtPos,mode,x,y));
   if(pos){u.ai.pos=pos;goTo(u,pos,u.ai.risk)}
 }
+// which choke to hold: the one nearest where they were last seen (or learned to come from); none if they are already past it
+function pickChoke(team){const ch=CHOKES[team];if(!ch.length)return null;const T=G.T[team];const pa=N.point;
+  let E=T.enemyC;if(!E&&LRN&&LRN.hot[team]&&LRN.hot[team].length)E=LRN.hot[team][0];if(!E)return ch[0];
+  const b=ch.slice().sort((a,c)=>Math.hypot(a.x-E.x,a.y-E.y)-Math.hypot(c.x-E.x,c.y-E.y))[0];
+  if(Math.hypot(E.x-pa.px,E.y-pa.py)<Math.hypot(b.x-pa.px,b.y-pa.py)-3*M)return null;return b}
 const urgentFor=team=>{const foe=team==='blue'?'red':'blue';return(G.cp.owner===foe&&G.cp.pct[foe]>=85)||(G.ot&&G.cp.owner===foe)};
 function goTo(u,pos,risk){if(Math.hypot(pos.x-u.x,pos.y-u.y)<10&&pos.l===u.l){u.path=[];return}
   if(u.dest&&Math.hypot(u.dest.x-pos.x,u.dest.y-pos.y)<14&&u.path.length&&G.el-(u.pathT||0)<1.2)return;
@@ -1616,7 +1644,7 @@ function aiAct(u,dt){
   if(u.path.length){followPath(u,dt);return}
   // strafe (A-D) around the chosen spot while fighting so enemy aim has to track — but never strafe out into the open
   const t=u.ai.c&&u.ai.c.tgt;const pos=u.ai.pos;
-  if(t&&(u.ai.mode==='fight'||u.ai.mode==='point')&&!(u.st.block)&&!(u.st.scoped)){u.ai.sT=(u.ai.sT||0)-dt;if(u.ai.sT<=0){u.ai.sT=rnd(.2,.6);u.ai.sd=Math.random()<.5?-1:1;if(Math.random()<.15)jump(u)}
+  if(t&&(u.ai.mode==='fight'||u.ai.mode==='point'||u.ai.mode==='hold')&&!(u.st.block)&&!(u.st.scoped)){u.ai.sT=(u.ai.sT||0)-dt;if(u.ai.sT<=0){u.ai.sT=rnd(.2,.6);u.ai.sd=Math.random()<.5?-1:1;if(Math.random()<.15)jump(u)}
     const a=Math.atan2(t.y-u.y,t.x-u.x)+Math.PI/2*u.ai.sd;const s=speedOf(u)*.75*dt;const nx=u.x+Math.cos(a)*s,ny=u.y+Math.sin(a)*s;
     const TH=THR[u.team];const far=pos&&Math.hypot(nx-pos.x,ny-pos.y)>1.4*M;const worse=TH[tci(nx,ny)]>TH[tci(u.x,u.y)]+.6;
     if(far||worse||!moveBy(u,Math.cos(a)*s,Math.sin(a)*s))u.ai.sd*=-1}
@@ -1814,7 +1842,7 @@ function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;
   if(G&&running&&!paused){let t=dt;while(t>0){const s=Math.min(t,1/60);step(s);t-=s;if(G.over)break}}
   draw(dt);updUI(dt);requestAnimationFrame(frame)}
 addEventListener('resize',resize);
-function boot(){buildNav();buildGround();resize();init();requestAnimationFrame(frame)}
+function boot(){buildNav();buildChokes();buildGround();resize();init();requestAnimationFrame(frame)}
 if(mapImg.complete&&mapImg.naturalWidth)boot();else mapImg.onload=boot;
 window.__dbg={get G(){return G},step,setPlayer,setCall,use,KIT,PROF,THR,SPAWNS,CAP,AIF};
 
