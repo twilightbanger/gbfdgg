@@ -157,7 +157,8 @@ button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
         スマホ：マップをタップでそこへ移動、オートエイムONで自動射撃。スキルは下のボタン。<br>
         マウスホイール / <kbd>+</kbd><kbd>-</kbd> で拡大縮小。壁は高さつきで描画、射線は高さ込みで判定。敵は味方の誰かから見えている時だけ表示。<br>
         <b style="color:var(--text)">マップ</b>：ポイントは<b>白い点線の四角</b>の中が占領範囲。リスポーン部屋は黄色線の位置（ポイント側の壁）が出口で、敵は入れず中では急速回復。<br>
-        <b style="color:var(--text)">AI</b>：敵の位置は味方の誰かが見た・撃たれた・足音が聞こえた情報だけで判断（透視なし）。敵の射線が通る場所（「射線マップ」で表示）を避けて遮蔽物沿いに動き、撃つ時は隠れ場所の隣から顔を出す。リロード・被弾・体力低下で射線を切り、人数や戦力で負けたら5人でリグループする。「AI表示」で味方が今何をしているかを表示。
+        <b style="color:var(--text)">AI</b>：敵の位置は味方の誰かが見た・撃たれた・足音が聞こえた情報だけで判断（透視なし）。敵の射線が通る場所（「射線マップ」で表示）を避けて遮蔽物沿いに動き、撃つ時は隠れ場所の隣から顔を出す。リロード・被弾・体力低下で射線を切り、人数や戦力で負けたら5人でリグループする。<br>
+        <b style="color:var(--text)">マクロ（エリア理論）</b>：開始はポイントに直行せず左の大通りを取る（ポイントは周りから囲まれやすい）。大通りを取れたら確保し、保持中はタンクが敵のスポーン出口＝大通りへの出入り口を前守り、トレーサーは左の廊下の敵側でサイドを取る。敵が先にポイントに乗ったら自陣側の入口と橋から囲み、トレーサーが敵側の入口から挟む。各AIは向いている方向の敵しか撃てないので、横や裏からの攻撃が効く。「AI表示」でエリアの支配状況と両チームの出口を表示。「AI表示」で味方が今何をしているかを表示。
       </div>
     </div>
   </div>
@@ -178,7 +179,7 @@ const mapImg=new Image();mapImg.src=NM.img;
 const BOX=[],ROOMS=[],BOUNDARY=[];
 // named positions for the AI in source-image px (map is mirror-symmetric top/bottom; blue spawns at the top)
 const NODE_SRC={stage:[320,300,0],front:[457,405,0],hg:[594,406,0],stairB:[594,406,0],nest:[286,377,0],stairNest:[286,377,0],
-  kitIn:[206,434,0],kitMid:[194,491,0],kitOut:[297,571,0],market:[343,343,0],ne:[566,394,0]};
+  kitIn:[206,434,0],kitMid:[194,491,0],kitOut:[297,571,0],market:[343,343,0],ne:[566,394,0],kitFar:[206,553.4,0]};
 const N={};const MIRY=985;
 for(const k in NODE_SRC){const [x,y,f]=NODE_SRC[k];N['b_'+k]={px:x*S,py:y*S+OY,floor:f+1};N['r_'+k]={px:x*S,py:1152-y*S+OY,floor:f+1}}
 N['point']={px:NM.point[0],py:NM.point[1]+OY,floor:1};
@@ -186,6 +187,16 @@ const nodeOf=(team,k)=>N[(team==='blue'?'b_':'r_')+k];
 const HEALTHPACKS=NM.packs.filter(([x,y])=>y<586).flatMap(([x,y])=>y>566?[[x,576]]:[[x,y],[x,1152-y]]).map(([x,y])=>({x:x/M,y:(y+OY)/M,big:false}));
 // capture zone = the white dashed square drawn around the point on the layout (measured from the image, ~9.3 m square)
 const CAP={x0:542,y0:510.4+OY,x1:672.3,y1:641.7+OY}; // centred on the map's mirror line (4 px above the drawn square's centre) so both sides are equally far
+// map areas for the macro (layout coords, symmetric about the mirror line): 大通り = the wide main street west of the point,
+// 左の廊下 = the corridor rooms further west (the flank), ポイント周り = the garden and the pavilion
+const AREA_SRC={main:{x0:283,y0:445,x1:423,y1:707,name:'大通り'},left:{x0:195,y0:440,x1:283,y1:712,name:'左の廊下'},pt:{x0:423,y0:487,x1:692,y1:665,name:'ポイント周り'}};
+const inArea=(a,x,y)=>{const A=AREA_SRC[a],ly=y-OY;return x>=A.x0&&x<=A.x1&&ly>=A.y0&&ly<=A.y1};
+const MAIN_C={x:353,y:576+OY}; // main street centre
+// where to stand to surround someone on the point (layout coords, blue side; red mirrors them): the two garden bridges
+// and our door into the pavilion — close enough together that heals reach, far enough apart to crossfire the square.
+const SURROUND_SRC=[{x:500,y:522,k:'bridgeN'},{x:500,y:630,k:'bridgeS'},{x:613,y:478,k:'door'},{x:560,y:476,k:'doorW'}];
+const surroundOf=team=>SURROUND_SRC.map(q=>({x:q.x,y:(team==='blue'?q.y:1152-q.y)+OY,k:q.k}));
+const ownHalf=(team,y)=>team==='blue'?y-OY<576:y-OY>576;
 const onCap=(x,y,m=0)=>x>=CAP.x0-m&&x<=CAP.x1+m&&y>=CAP.y0-m&&y<=CAP.y1+m;
 // spawn rooms (nav cells, original-layout rows; red is the row mirror). The exits are in the room's point-side wall,
 // exactly where the layout draws the yellow spawn-door bars: one into the side room, one down a short hall into the main room.
@@ -216,9 +227,11 @@ let walkPic=null;
 // ENTRANCES: the two side rooms by the market get a door toward their own side; SPAWN_CUTS: the spawn exits.
 const ENTRANCES=[{x0:362,y0:358,x1:404,y1:373},{x0:425,y0:412,x1:466,y1:427},
   {x0:337,y0:175,x1:364,y1:190}, // (point doors below)
-  {x0:580,y0:489,x1:634,y1:505}]; // the point pavilion: a door in the middle of its north wall (and the south one, mirrored); the health-pack room north of the market opens toward its own spawn, like the red one does
-// wall lines added to the layout (mirrored as well): the health-pack room's back wall, so the blue one matches the red one
-const EXTRA_SEGS=[[335,232,366,232]];
+  {x0:592,y0:489,x1:634,y1:505}]; // the point pavilion: a door in its north wall (and the south one, mirrored), its west jamb pulled in; the health-pack room north of the market opens toward its own spawn, like the red one does
+// wall lines added to the layout (mirrored as well): the health-pack room's back wall, so the blue one matches the red one;
+// the point pavilion's east side (walled top and bottom, open in the middle) and the middle of its west side
+// (between the two garden bridges, which stay open)
+const EXTRA_SEGS=[[335,232,366,232],[690,497,690,551],[526,543,526,576]];
 const SPAWN_CUTS=[{x0:198,y0:0,x1:240,y1:20},{x0:372,y0:0,x1:414,y1:56}];
 const SEGS=[];const SEGC=new Uint8Array(GN);
 // The map is made exactly symmetric: the blue (top) half is the master and the red half is its mirror (layout y -> MIR-y,
@@ -281,17 +294,27 @@ const reachable=i=>COMP[i]===MAINC;
 const WID=new Uint8Array(GN);
 function buildWidth(){const q=new Int32Array(GN);let h=0,t=0;WID.fill(255);for(let i=0;i<GN;i++)if(LY[0][i]!==1){WID[i]=0;q[t++]=i}
   while(h<t){const i=q[h++];const gx=i%GW,gy=(i/GW)|0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const nx=gx+dx,ny=gy+dy;if(nx<0||ny<0||nx>=GW||ny>=GH)continue;const j=ny*GW+nx;if(WID[j]>WID[i]+1){WID[j]=WID[i]+1;q[t++]=j}}}}
-// chokepoints a team holds forward while it owns the point: on each way the attackers can walk in (from both of their
-// spawn doors, their stage and the flank room), the narrowest spot 11-27 m out from the point; the hold spot is a few
-// metres behind it on the defenders' side
-function buildChokes(){for(const team of ['blue','red']){const att=team==='blue'?'red':'blue';const S=SPAWNS[att];const starts=S.door.filter(d=>d.edge).map(d=>({x:ccx(d.i),y:ccy(d.i)}));
-  const st=nodeOf(att,'stage'),km=nodeOf(att,'kitMid');starts.push({x:st.px,y:st.py},{x:km.px,y:km.py});
-  const ti=nearestStand(N.point.px,N.point.py,0,false,20,att,true);const out=[];
-  for(const s0 of starts){const si=nearestStand(s0.x,s0.y,0,false,20,att,true);if(si<0||ti<0)continue;const cells=astar({i:si,l:0},{i:ti,l:0},false,att,0);if(!cells)continue;
-    let best=-1,bw=1e9;for(let k=0;k<cells.length;k++){const i=cells[k].i;const d=Math.hypot(ccx(i)-N.point.px,ccy(i)-N.point.py)/M;if(d<11||d>27)continue;const w=WID[i]+d*.02;if(w<bw){bw=w;best=k}}
-    if(best<0)continue;const c=cells[best].i;const hb=cells[Math.min(cells.length-1,best+Math.round(4*M/CELL))].i; // ~4 m further along, toward the point
-    const ch={x:ccx(c),y:ccy(c),hx:ccx(hb),hy:ccy(hb),w:WID[c]};if(!out.some(o=>Math.hypot(o.x-ch.x,o.y-ch.y)<6*M))out.push(ch)}
-  CHOKES[team]=out}}
+// chokepoints = the doorways each team uses to come out of its spawn side onto the main street (大通り).
+// For a team, CHOKES[team] are the ENEMY's doorways: that is where its tank holds forward (前守り), a few metres inside the
+// street. Found by walking the enemy's ways from both of its spawn doors to the street: on each way, the last narrow spot
+// (<= ~4.5 m wide) on their half right at the street's edge; each one found is blocked to find the next way in.
+function distToArea(a,x,y){const A=AREA_SRC[a],ly=y-OY;const dx=Math.max(A.x0-x,0,x-A.x1),dy=Math.max(A.y0-ly,0,ly-A.y1);return Math.hypot(dx,dy)}
+function findDoorways(team,area,target){const att=team==='blue'?'red':'blue';const S=SPAWNS[att];
+  const starts=[];for(const hall of [false,true]){const ds=S.door.filter(d=>d.edge&&d.hall===hall);if(ds.length)starts.push(ds[ds.length>>1].i)}
+  const ti=nearestStand(target.x,target.y,0,false,20,att,true);const out=[];const blocked=[];
+  for(const si of starts){let first=0;for(let k=0;k<5;k++){const cells=astar({i:si,l:0},{i:ti,l:0},false,att,0);if(!cells)break;if(!first)first=cells.length;if(cells.length>first*1.6)break;
+      let e=-1;for(let q=cells.length-1;q>=0;q--){const i=cells[q].i,x=ccx(i),y=ccy(i);if(!ownHalf(att,y)||inArea(area,x,y))continue;if(Math.hypot(x-target.x,y-target.y)<8*M)continue;if(WID[i]<=4){e=q;break}}
+      if(e<0)break;const ei=cells[e].i;const ex=ccx(ei),ey=ccy(ei);
+      capsule(ex,ey,ex,ey,2.5*M,i=>{if(!TEMP[i]){TEMP[i]=1;blocked.push(i)}});
+      if(distToArea(area,ex,ey)>2.5*M)continue; // a narrow spot deeper in their rooms, not a doorway onto the area
+      // hold spot: ~4.5 m inside the area from the doorway, along their way in
+      let h=cells.length-1;for(let q=e;q<cells.length;q++){if(Math.hypot(ccx(cells[q].i)-ex,ccy(cells[q].i)-ey)>=4.5*M){h=q;break}}
+      const hi=cells[h].i;if(!out.some(o=>Math.hypot(o.x-ex,o.y-ey)<5*M))out.push({x:ex,y:ey,hx:ccx(hi),hy:ccy(hi),w:WID[ei],len:cells.length,area})}}
+  for(const i of blocked)TEMP[i]=0;out.sort((a,b)=>a.len-b.len);return out}
+function buildChokes(){for(const team of ['blue','red']){CHOKES[team]=findDoorways(team,'main',MAIN_C);
+  // their ways to the point that skip the street (the south-east corridor, the east side): held only when they come that way
+  const pt={x:N.point.px,y:N.point.py};CHOKES2[team]=findDoorways(team,'pt',pt).filter(c=>!CHOKES[team].some(o=>Math.hypot(o.x-c.x,o.y-c.y)<6*M))}}
+const CHOKES2={blue:[],red:[]};
 const CHOKES={blue:[],red:[]};
 const EYE=new Uint8Array(GN); // 1 = a wall at standing eye height (static line-of-sight blocker)
 const WALLC=new Uint8Array(GN);
@@ -457,7 +480,7 @@ function hitBlocker(obj,amount,src){
   if(obj.hp<=0){if(obj.r){obj.cells&&obj.cells.forEach(i=>TEMP[i]=0)}else{if(obj.owner&&obj.kind==='sigma'){obj.owner.cd.barrier=Math.max(obj.owner.cd.barrier||0,5);obj.owner.barrierHp=null}}}
 }
 // fire a hitscan bullet; dmgFn(distancePx) -> damage
-function hitscan(src,ang,range,dmgFn,color,opt={}){
+function hitscan(src,ang,range,dmgFn,color,opt={}){src.lastFire=G.el;
   const r=traceShot(src,ang,range,opt);
   const ex=src.x+r.dx*r.end,ey=src.y+r.dy*r.end;
   if(r.kind==='unit'){if(opt.heal)heal(r.unit,dmgFn(r.end),src);else{const d=dmg(r.unit,dmgFn(r.end),src);opt.onHit&&opt.onHit(r.unit,d)}}
@@ -467,7 +490,7 @@ function hitscan(src,ang,range,dmgFn,color,opt={}){
   return r;
 }
 // projectiles ---------------------------------------------
-function proj(src,ang,o){const s=o.speed*M;const z0=(src.z||0)+1.5;const ad=Math.max(M,Math.hypot((src.aimX??src.x)-src.x,(src.aimY??src.y)-src.y));const az=o.home?(o.home.z||0)+1.1:(src.aimZ??z0-.2);const p={z:z0,vz:(az-z0)/(ad/s),ox:src.x,oy:src.y,x:src.x+Math.cos(ang)*12,y:src.y+Math.sin(ang)*12,l:src.l,vx:Math.cos(ang)*s,vy:Math.sin(ang)*s,src,team:src.team,r:o.r||3,life:(o.range||40)*M/s,c:o.c||'#fff',...o};G.projs.push(p);return p}
+function proj(src,ang,o){src.lastFire=G.el;const s=o.speed*M;const z0=(src.z||0)+1.5;const ad=Math.max(M,Math.hypot((src.aimX??src.x)-src.x,(src.aimY??src.y)-src.y));const az=o.home?(o.home.z||0)+1.1:(src.aimZ??z0-.2);const p={z:z0,vz:(az-z0)/(ad/s),ox:src.x,oy:src.y,x:src.x+Math.cos(ang)*12,y:src.y+Math.sin(ang)*12,l:src.l,vx:Math.cos(ang)*s,vy:Math.sin(ang)*s,src,team:src.team,r:o.r||3,life:(o.range||40)*M/s,c:o.c||'#fff',...o};G.projs.push(p);return p}
 function stepProjs(dt){
   const keep=[];
   for(const p of G.projs){
@@ -634,7 +657,8 @@ function seenAt(t,ago){const h=t.ph;if(!h||!h.length)return{x:t.x,y:t.y,vx:0,vy:
 // around that point: a slowly drifting error (overshoot after a flick, lag while tracking) instead of a fresh random
 // offset per shot. The error grows with distance, with how fast the target strafes and right after switching targets,
 // so bursts miss in streaks and a strafing player really does dodge shots.
-function aimAt(u,t,speedM,errM){if(u.ai.lastT!==t){u.ai.lastT=t;u.ai.sw=.35}u.ai.aim={t,s:speedM||0,e:errM||0};aimTrack(u,0)}
+// switching targets costs aim, more the bigger the turn onto the new one
+function aimAt(u,t,speedM,errM){if(u.ai.lastT!==t){u.ai.lastT=t;const da=Math.abs(angDiff(u.face||0,Math.atan2(t.y-u.y,t.x-u.x)));u.ai.sw=.2+.8*da/Math.PI}u.ai.aim={t,s:speedM||0,e:errM||0};aimTrack(u,0)}
 function aimTrack(u,dt){const A=u.ai.aim;if(!A||!A.t||A.t.dead)return;const t=A.t;const pr=PROF[u.team]||PROF.red;
   const s=seenAt(t,pr.react);let tx=s.x,ty=s.y;
   if(A.s){const d=Math.hypot(tx-u.x,ty-u.y);const tt=d/(A.s*M)+pr.react;tx+=s.vx*tt*.85;ty+=s.vy*tt*.85}
@@ -1042,6 +1066,17 @@ let thrCv=null,thrImg=null,thrStamp=-1;
 function drawThreat(){const T=THR.blue;if(!T)return;if(!thrCv){thrCv=document.createElement('canvas');thrCv.width=TW;thrCv.height=TH_;thrImg=thrCv.getContext('2d').createImageData(TW,TH_)}
   if(thrStamp!==Math.floor(G.el*5)){thrStamp=Math.floor(G.el*5);const d=thrImg.data;for(let c=0;c<TN;c++){const v=TSTAND[c]?Math.min(1,T[c]/3):0;d[c*4]=255;d[c*4+1]=Math.round(90-60*v);d[c*4+2]=60;d[c*4+3]=v>0?Math.round(40+120*v):0}thrCv.getContext('2d').putImageData(thrImg,0,0)}
   ctx.imageSmoothingEnabled=false;ctx.drawImage(thrCv,0,0,TW*TC,TH_*TC);ctx.imageSmoothingEnabled=true}
+// the macro on the map (with AI表示): who controls each area, and each side's doorways onto the street (the chokes)
+function drawMacro(){const T=G.T.blue;if(!T||!T.area)return;ctx.save();ctx.font='700 11px "Noto Sans JP",sans-serif';ctx.textAlign='left';
+  for(const a of ['main','left']){const A=AREA_SRC[a];const [m,e]=T.area[a];const col=m>e?'79,179,255':e>m?'255,93,98':'200,200,200';
+    ctx.strokeStyle=`rgba(${col},.55)`;ctx.lineWidth=2;ctx.setLineDash([10,8]);ctx.strokeRect(A.x0,A.y0+OY,A.x1-A.x0,A.y1-A.y0);ctx.setLineDash([]);
+    ctx.fillStyle=`rgba(${col},.9)`;ctx.fillText(`${A.name} ${m}:${e}`,A.x0+4,A.y0+OY+13)}
+  const mark=(q,rgb,label)=>{ctx.strokeStyle=`rgba(${rgb},.9)`;ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(q.x,q.y,9,0,7);ctx.stroke();ctx.beginPath();ctx.moveTo(q.x-5,q.y);ctx.lineTo(q.x+5,q.y);ctx.stroke();
+    ctx.fillStyle=`rgba(${rgb},.95)`;ctx.textAlign='center';ctx.fillText(label,q.x,q.y-13)};
+  // CHOKES.blue = the enemy's doorways (we hold them), CHOKES.red = ours
+  for(const q of CHOKES.blue)mark(q,'255,93,98','敵の出口');for(const q of CHOKES.red)mark(q,'79,179,255','味方の出口');
+  const tk=G.units.find(u=>u.team==='blue'&&u.role==='tank'&&!u.dead);if(tk&&tk.ai.an&&tk.ai.an.hold){const h=tk.ai.an;ctx.strokeStyle='rgba(159,227,255,.9)';ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(tk.x,tk.y);ctx.lineTo(h.hold.x,h.hold.y);ctx.stroke();ctx.setLineDash([])}
+  ctx.restore()}
 function drawCapZone(){const own=G.cp.owner;const col=own==='blue'?'79,179,255':own==='red'?'255,93,98':'242,211,138';
   const x0=CAP.x0,y0=CAP.y0,w=CAP.x1-CAP.x0,h=CAP.y1-CAP.y0;ctx.save();
   ctx.fillStyle=G.cp.locked?'rgba(0,0,0,.22)':`rgba(${col},${own?.13:.06})`;ctx.fillRect(x0,y0,w,h);
@@ -1065,6 +1100,7 @@ function draw(dt){
   if(showThr)drawThreat();
   // control point: the dashed square from the layout
   drawCapZone();
+  if(showAI)drawMacro();
   // spawn doors: a team-coloured field enemies cannot pass
   for(const team of ['blue','red']){const S=SPAWNS[team];const rgb=team==='blue'?'79,179,255':'255,93,98';const pulse=.35+.15*Math.sin(performance.now()/300);
     ctx.fillStyle=`rgba(${rgb},${pulse})`;for(const d of S.door)if(d.edge)ctx.fillRect(d.c*CELL,d.r*CELL,CELL,CELL)}
@@ -1113,7 +1149,7 @@ function draw(dt){
   if(p&&p.path.length){ctx.strokeStyle='rgba(242,179,61,.6)';ctx.setLineDash([3,6]);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(p.x,p.y);p.path.forEach(q=>ctx.lineTo(q.x,q.y));ctx.stroke();ctx.setLineDash([])}
   drawHud(p);
 }
-const AI_LABEL={fight:['交戦','#ffd9a0'],hide:['遮蔽','#9fe3ff'],escape:['退避','#ff9a9a'],regroup:['集合','#c9d6dd'],join:['合流','#c9d6dd'],evade:['回避','#e7b3ff'],move:['裏取り','#b8ff6b'],point:['ポイント','#f2d38a'],wait:['待機','#c9d6dd'],hold:['前守り','#9fe3ff'],dive:['奇襲','#b8ff6b']};
+const AI_LABEL={fight:['交戦','#ffd9a0'],hide:['遮蔽','#9fe3ff'],escape:['退避','#ff9a9a'],regroup:['集合','#c9d6dd'],join:['合流','#c9d6dd'],evade:['回避','#e7b3ff'],move:['裏取り','#b8ff6b'],point:['ポイント','#f2d38a'],wait:['待機','#c9d6dd'],hold:['前守り','#9fe3ff'],side:['サイド','#b8ff6b'],dive:['奇襲','#b8ff6b']};
 function drawUnit(u){
   const col=u.team==='blue'?'#4fb3ff':'#ff5d62';const fz=floorZ(u.x,u.y,u.l);const zo=(u.z||0)*ZP;
   ctx.fillStyle='rgba(0,0,0,.38)';ctx.beginPath();ctx.ellipse(u.x+2,u.y-fz*ZP+3,11,6,0,0,7);ctx.fill();
@@ -1213,6 +1249,7 @@ function init(){
   setPlayer(G.units.find(u=>u.id===pickId));
   log('tip','リジャンタワー：ナイトマーケット。開始までスポーンで待機、ドアが開くと同時にポイント（白い点線の四角）が解放。リスポーン部屋の出口は黄色線の2か所。左の厨房側の通路は裏取りルート。');
   if(!LRN)learnInit();learnStart();updLearnUI();
+  log('tip','マクロ：ポイントは台の周りから囲まれやすい。開始はまず左の大通りを取り、勝ってから確保。確保後はタンクが敵のスポーン出口（大通りへの出入り口）を前守り、トレーサーは左の廊下でサイドを取る。');
   setCall('auto');buildSide();camX=spawnCenter('blue').px;camY=spawnCenter('blue').py;buildAbilityBar();
 }
 function setPlayer(u){if(G.player)G.player.ctrl='ai';G.player=u;u.ctrl='player';u.path=[];buildAbilityBar()}
@@ -1316,7 +1353,7 @@ const AIP={ // rng: preferred fight distance (m), min: too close, peek: plays th
   tracer:{rng:8,min:0,peek:.4,tol:1.3,flank:1},bob:{rng:20,min:0,peek:0,tol:9},
   lucio:{rng:13,min:3,peek:.6,tol:1.1,sup:1},kiriko:{rng:18,min:7,peek:1,tol:.8,sup:1},ana:{rng:25,min:11,peek:1,tol:.8,sup:1},mizuki:{rng:15,min:5,peek:1,tol:.9,sup:1}};
 // feature switches per side (all on in play; the test harness turns them off for one side to measure them)
-const AIF={blue:{path:1,peek:1,cover:1,thr:1},red:{path:1,peek:1,cover:1,thr:1}};
+const AIF={blue:{path:1,peek:1,cover:1,thr:1,area:1,sur:1,fov:1,cap:1,ch2:1,hold2:1,pinch:1},red:{path:1,peek:1,cover:1,thr:1,area:1,sur:1,fov:1,cap:1,ch2:1,hold2:1,pinch:1}};
 const RANGE_M={ramattra:15,sigma:24,sojourn:44,ashe:46,tracer:14,mei:24,lucio:20,kiriko:30,ana:44,mizuki:24,bob:28};
 const THREAT_W={tank:1,damage:1.3,support:.7};
 const AOE_ULT={sigma:1,mei:1,ramattra:1,tracer:1,lucio:0,kiriko:0,ana:0,mizuki:0,sojourn:0,ashe:0};
@@ -1327,7 +1364,12 @@ function updKnow(dt){
   G.knowT=(G.knowT||0)-dt;if(G.knowT>0)return;G.knowT=.1;
   for(const team of ['blue','red']){const K=G.K[team];const my=G.units.filter(u=>u.team===team&&!u.dead&&!u.summon);
     for(const e of G.units){if(e.team===team)continue;if(e.dead){K.delete(e);continue}
-      let n=0;for(const a of my){const d=D2(a,e);if(d<6*M||(d<55*M&&sees(a,e)))n++}
+      // attention: a bot notices what is in front of it (about 145 degrees), footsteps close by and gunfire nearby;
+      // the human player sees the whole screen. So flanks and crossfires really catch a team looking the other way.
+      let n=0;for(const a of my){const d=D2(a,e);if(d<6*M){n++;continue}if(d>=55*M)continue;
+        const heard=e.lastFire&&G.el-e.lastFire<.5&&d<25*M;
+        if(!heard&&a.ctrl!=='player'&&Math.abs(angDiff(a.face||0,Math.atan2(e.y-a.y,e.x-a.x)))>1.25)continue;
+        if(sees(a,e))n++}
       if(n)K.set(e,{x:e.x,y:e.y,l:e.l,t:G.el,n});else{const k=K.get(e);if(k)k.n=0}}
     for(const [e,k] of K)if(G.el-k.t>8)K.delete(e)}
 }
@@ -1365,7 +1407,12 @@ function hazardAt(u,x,y){let h=0;
 // ---- perception ----
 function perceive(u){
   const foesAll=knownFoes(u.team,3);
-  const foes=foesAll.filter(f=>D2(f,u)<45*M&&sees(u,f)).sort((a,b)=>D2(a,u)-D2(b,u));
+  // a bot can only shoot what it is looking at (about 125 degrees in front), someone right next to it, someone who just
+  // shot it, or someone firing close by: fighting one way leaves you open from the side, which is what flanks and
+  // surrounds are for
+  const fov=u.ctrl==='player'||!AIF[u.team].fov?null:(f=>{const d=D2(f,u);if(d<6*M)return true;if(u.dmgBy[f.id]!=null&&u.dmgBy[f.id]-G.t<1.5)return true; // G.t counts down
+    if(f.lastFire&&G.el-f.lastFire<.4&&d<20*M)return true;return Math.abs(angDiff(u.face||0,Math.atan2(f.y-u.y,f.x-u.x)))<1.1});
+  const foes=foesAll.filter(f=>D2(f,u)<45*M&&(!fov||fov(f))&&sees(u,f)).sort((a,b)=>D2(a,u)-D2(b,u));
   const allies=alliesOf(u);const T=G.T[u.team]||{};const P=AIP[u.id]||{rng:20};
   // pick targets like a good player: the team's focus, low, isolated, supports, disabled, in my range
   let tgt=null,bs=-1e9;for(const f of foes){const d=D2(f,u)/M;let s=-d*.8-hpFrac(f)*28-Math.max(0,d-P.rng-6)*1.2;if(f.role==='support')s+=6;if(f.st.sleep>0||f.st.frozen>0||f.st.lift>0||f.st.stun>0)s+=7;
@@ -1400,12 +1447,17 @@ function findCover(u,maxCells=2600,pref=null,thrMax=.15){if(pref&&pref.dead)pref
   return best}
 const healerFor=(u,c)=>c.allies.filter(a=>a!==u&&a.role==='support'&&!a.summon&&D2(a,u)<35*M).sort((a,b)=>D2(a,u)-D2(b,u))[0];
 
+// where an idle bot looks: the last place an enemy was seen, else their doorway onto the street, else the point
+function watchPoint(u,c){let best=null,bd=1e9;for(const [e,k] of G.K[u.team]){if(e.dead||G.el-k.t>5)continue;const d=Math.hypot(k.x-u.x,k.y-u.y);if(d<bd){bd=d;best={x:k.x,y:k.y}}}
+  if(best)return best;const ch=pickChoke(u.team);if(ch&&Math.hypot(ch.x-u.x,ch.y-u.y)<35*M)return{x:ch.x,y:ch.y};return{x:N.point.px,y:N.point.py}}
 function aiThink(u,dt){
   u.ai.t-=dt;if(u.ai.t>0)return;u.ai.t=(PROF[u.team]||PROF.red).react*.8+Math.random()*.05;
   if(u.ai.sw>0)u.ai.sw-=u.ai.t;
   if(incapped(u)){u.ai.f1=u.ai.f2=false;return}
-  const c=perceive(u);u.ai.c=c;
+  const c=perceive(u);u.ai.c=c;const ax0=u.aimX,ay0=u.aimY;
   const k=KIT[u.id];if(k&&k.ai)k.ai(u,c);
+  // nothing to shoot and the kit did not aim anywhere (e.g. at an ally to heal): check the angle they will come from
+  if(!c.tgt&&u.aimX===ax0&&u.aimY===ay0){const w=watchPoint(u,c);if(w){u.aimX=w.x;u.aimY=w.y;u.aimZ=1.2;u.ai.aim=null}}
   if(u.id==='ramattra'&&!(u.st.nemesis>0))u.st.block=false;
   // react at once to burst damage or standing in something nasty instead of waiting for the next plan
   const burst=(c.incoming||0)/Math.max(1,totalMax(u));
@@ -1439,7 +1491,7 @@ function teamBrain(dt){
     const tank=my.find(u=>u.role==='tank');
     const say=(c,t)=>{if(team==='blue'&&(G.call==='auto'||G.call==='push'))log(c,t)};
     // the whole team commits the moment the doors open
-    if(G.cp.locked<=0&&!T.started){T.started=1;T.ts='engage';T.fk0=team==='blue'?G.bk:G.rk;T.fd0=team==='blue'?G.rk:G.bk;say('good','味方AI：開始、全員でポイントへ')}
+    if(G.cp.locked<=0&&!T.started){T.started=1;T.ts='engage';T.fk0=team==='blue'?G.bk:G.rk;T.fd0=team==='blue'?G.rk:G.bk;say('good','味方AI：開始。ポイントは囲まれるので、まず大通りを取る')}
     if(T.ts==='engage'){
       // lost the fight: reset together instead of feeding one by one (unless the objective forces a contest)
       const pm=teamPower(my,null),pe=teamPower(en,team);T.pow=[pm,pe];
@@ -1456,15 +1508,24 @@ function teamBrain(dt){
       if(go&&T.retreat&&G.el-T.retreat<4&&!urgent)go=false;                // no instant re-feed after a reset
       if(go){T.ts='engage';T.fk0=team==='blue'?G.bk:G.rk;T.fd0=team==='blue'?G.rk:G.bk;say('good',ultM>=2?'味方AI：ウルト有利、今エントリー':urgent?'味方AI：相手が99%に近い、ポイントに触る':'味方AI：そろった、エントリー')}
     }
-    const enNear=knownFoes(team,2).filter(e=>!e.summon&&Math.hypot(e.x-N.point.px,e.y-N.point.py)<22*M).length;
-    const prev=T.adv;T.adv=T.ts==='engage'&&G.cp.locked<=0&&(my.length>=en.length+1||enOn===0&&enNear===0&&my.length>=en.length||urgent||en.length===0);
-    if(T.adv&&!prev)say('good','味方AI：有利、ポイントに乗る');
+    // area control (エリア理論): who holds the main street, the flank corridor and the point area, from what we know
+    const kn=knownFoes(team,2.5).filter(e=>!e.summon);T.area={};
+    for(const a of ['main','left','pt']){T.area[a]=[my.filter(u=>inArea(a,u.x,u.y)).length,kn.filter(e=>{const k=G.K[team].get(e);return inArea(a,k.x,k.y)}).length]}
+    // the street has been ours (nobody of theirs in it or around the point) for a while: the fight for it is won
+    if(T.ts==='engage'&&T.area.main[1]===0&&T.area.pt[1]===0&&T.area.main[0]+T.area.pt[0]>=2)T.clearT=(T.clearT||0)+.4;else T.clearT=0;
+    // take the point only once the area is won: numbers, or the street held clear for a few seconds — never as the opener
+    const prev=T.adv;T.adv=!AIF[team].cap?T.ts==='engage'&&G.cp.locked<=0&&(my.length>=en.length+1||enOn===0&&my.length>=en.length||urgent||en.length===0):T.ts==='engage'&&G.cp.locked<=0&&(en.length===0||my.length>=en.length+2||my.length>=en.length+1&&T.area.pt[1]===0&&T.area.main[1]<=1||T.clearT>=1.6&&my.length>=en.length||urgent);
+    if(T.adv&&!prev&&G.cp.owner!==team)say('good',T.clearT>=1.6?'味方AI：大通りを取った、ポイントを確保':'味方AI：人数有利、ポイントを確保');
+    const ph=G.cp.locked>0?'wait':T.ts!=='engage'?'reset':(enOn>0||G.cp.capTeam===foe&&G.cp.capProg>0)?'contest':G.cp.owner===team?'hold':T.adv?'cap':'main';
+    if(ph!==T.phase){if(ph==='hold'&&T.phase)say('tip','味方AI：確保した。タンクは敵のスポーン出口を前守り、トレーサーはサイド');T.phase=ph}
     // who stands on the point
     T.touch=new Set();
     if(G.cp.locked<=0&&T.ts==='engage'){
       const byDist=my.slice().sort((a,b)=>Math.hypot(a.x-N.point.px,a.y-N.point.py)-Math.hypot(b.x-N.point.px,b.y-N.point.py));
-      if(G.cp.owner!==team){if(T.adv||urgent){for(const u of my)if(u.role==='tank'||u.id==='mei'||u.id==='lucio'||u.id==='mizuki'||u.id==='kiriko'||urgent)T.touch.add(u);if(!T.touch.size&&byDist[0])T.touch.add(byDist[0])}}
-      else if(enOn>0||G.cp.capTeam===foe){for(const u of my)if(u.role==='tank'||u.id==='mei'||u.id==='lucio')T.touch.add(u);byDist.slice(0,2).forEach(u=>T.touch.add(u))}
+      if(G.cp.owner!==team){if(T.adv||urgent){for(const u of my)if(u.role==='tank'||u.id==='mei'||u.id==='lucio'||u.id==='mizuki'||u.id==='kiriko'||urgent)T.touch.add(u);if(!T.touch.size&&byDist[0])T.touch.add(byDist[0])}
+        else if(G.cp.capTeam===foe&&enOn>0&&(my.length>en.length||G.cp.capProg>50||T.inPos)){const tk=my.find(u=>u.role==='tank');T.touch.add(tk||byDist[0])} // they are capping: the tank contests, the rest shoot from the street and the garden
+      }
+      else if((enOn>0||G.cp.capTeam===foe)&&(my.length>en.length||G.cp.capProg>50||T.inPos||!AIF[team].area)){for(const u of my)if(u.role==='tank'||u.id==='mei'||u.id==='lucio')T.touch.add(u);byDist.slice(0,2).forEach(u=>T.touch.add(u))}
     }
     // shared focus target: the known enemy most of us can shoot that dies fastest
     let fb=null,fs=-1e9;for(const e of knownFoes(team,.6)){if(e.summon)continue;let n=0;for(const a of my)if(D2(a,e)<40*M&&sees(a,e))n++;if(!n)continue;
@@ -1475,14 +1536,16 @@ function teamBrain(dt){
     if(T.ts==='engage'&&!T.engT)T.engT=G.el;if(T.ts!=='engage')T.engT=0;
     // where the fight is: our front (tank, or the point) and what we know of theirs
     const kf=knownFoes(team,4).filter(e=>!e.summon);
-    T.front=tank&&Math.hypot(tank.x-N.point.px,tank.y-N.point.py)<34*M?{x:tank.x,y:tank.y}:{x:N.point.px,y:N.point.py};
+    T.front=tank&&Math.hypot(tank.x-N.point.px,tank.y-N.point.py)<34*M?{x:tank.x,y:tank.y}:{x:MAIN_C.x,y:MAIN_C.y};
+    {const sl=surroundOf(team);const out=my.filter(u=>u.ai.slot&&u.ai.slot!=='tank');T.inPos=out.length>=2&&out.filter(u=>{const q=sl.find(o=>o.k===u.ai.slot);return q&&Math.hypot(q.x-u.x,q.y-u.y)<5*M}).length>=out.length-1}
+    T.bc=T.phase==='cap'||T.phase==='contest'?{x:N.point.px,y:N.point.py}:tank?{x:tank.x,y:tank.y}:MAIN_C;
     T.enemyC=kf.length?{x:kf.reduce((s,e)=>s+G.K[team].get(e).x,0)/kf.length,y:kf.reduce((s,e)=>s+G.K[team].get(e).y,0)/kf.length}:null;
     const tk=my.find(u=>u.role==='tank');if(tk&&tk.st.annihil>0){const kir=my.find(u=>u.id==='kiriko'&&u.ctrl==='ai'&&u.ult>=u.d.ult&&D2(u,tk)<20*M);if(kir){kir.aimX=tk.x;kir.aimY=tk.y;use(kir,'q')}}
   }
   macroBrain();
 }
 // hero routes (node keys, mirrored for the red side): flank corridor for Tracer
-const ROUTE={tracer:['kitIn','kitMid']};
+const ROUTE={tracer:['kitIn','kitMid','kitFar']}; // Tracer takes the side: all the way down the left corridor to their end of it
 const RG_NODES=['stage','market','nest','ne','front'];
 const stageOf=team=>(G.T[team]&&G.T[team].rg)||nodeOf(team,'stage');
 const ROLE_OFF={tank:[3.5,0],damage:[0,3.5],support:[-4,0]};
@@ -1510,20 +1573,27 @@ function anchorFor(u,c){
     return{x:front.x+(st.px-front.x)/d*6*M,y:front.y+(st.py-front.y)/d*6*M,r:5,kind:'join'}}
   if(T.touch&&T.touch.has(u))return{x:pa.px,y:pa.py,r:3.5,kind:'point'};
   // Tracer: flank through the corridor, then hunt an isolated backliner once the tanks are fighting
-  if(u.id==='tracer'&&!(T.ts==='engage'&&G.cp.locked<=0&&(T.enemyC||c.foesAll.length)))return{x:front.x,y:front.y,r:9,kind:'fight'};
+  // they sit on the point: Tracer comes round to their side of it and pinches through their own door
+  if(u.id==='tracer'&&AIF[team].pinch&&T.phase==='contest'&&hpFrac(u)>.5){const y=(team==='blue'?676:476)+OY;return{x:613,y,r:4,kind:'fight',side:1}}
   if(u.id==='tracer'){const r=ROUTE.tracer;u.ai.ri=u.ai.ri||0;
     if(u.ai.ri>=r.length&&hpFrac(u)>.6&&G.units.some(a=>a.team===team&&a.role==='tank'&&!a.dead&&c.foesAll.some(f=>D2(f,a)<20*M))){const back=c.foesAll.filter(f=>!f.summon&&(f.role==='support'||f.id==='ashe'||f.id==='sojourn')&&(c.foesAll.filter(o=>o!==f&&D2(o,f)<9*M).length<=1||hpFrac(f)<.5)).sort((a,b)=>hpFrac(a)-hpFrac(b))[0];if(back)return{x:back.x,y:back.y,r:3,kind:'dive'}}
-    if(u.ai.ri>=r.length){const n=nodeOf(team,r[r.length-1]);const E=T.enemyC;
-      // flank done: fight from the side, a few metres off their group on the flank side
-      if(E){const d=Math.hypot(n.px-E.x,n.py-E.y)||1;const k=Math.min(1,9*M/d);return{x:E.x+(n.px-E.x)*k,y:E.y+(n.py-E.y)*k,r:6,kind:'fight'}}
-      return{x:n.px,y:n.py,r:7,kind:'fight'}}
+    if(u.ai.ri>=r.length){const n=nodeOf(team,r[r.length-1]);
+      // the side is taken: someone of theirs in the corridor gets duelled there; otherwise hold the side angle onto
+      // their doorways into the street, so they have to fight us from two directions or give the area up
+      const inL=c.foesAll.filter(f=>!f.summon&&inArea('left',f.x,f.y));if(inL.length){const f=inL[0];return{x:f.x,y:f.y,r:5,kind:'fight',side:1}}
+      return{x:n.px,y:n.py,r:6,kind:'fight',side:1}}
     const n=nodeOf(team,r[u.ai.ri]);if(Math.hypot(n.px-u.x,n.py-u.y)<3*M)u.ai.ri++;return{x:n.px,y:n.py,r:3,kind:'route'}}
-  // we own the point: the tank holds the chokepoint they must come through instead of standing on the point
-  if(u.role==='tank'&&G.cp.owner===team&&!urgentFor(team)&&!(G.cp.capTeam&&G.cp.capTeam!==team)&&c.onPointFoe===0){const ch=pickChoke(team);if(ch)return{x:ch.hx,y:ch.hy,r:3,kind:'fight',hold:ch}}
-  if(u.role==='tank'||u.id==='mei'){const E=T.enemyC;
-    // tanks take the space in front of the point; lean toward where the enemy is
-    if(E&&Math.hypot(E.x-pa.px,E.y-pa.py)<24*M){const x=pa.px+(E.x-pa.px)*.35,y=pa.py+(E.y-pa.py)*.35;return{x,y,r:7,kind:'fight'}}
-    return{x:pa.px,y:pa.py,r:7,kind:'fight'}}
+  // area control: the tank takes the main street (the point in the middle is easy to surround), meets them in the
+  // street, and when the street is ours holds the doorway they come out of their spawn side through
+  if(u.role==='tank'&&AIF[team].area&&AIF[team].sur&&T.phase==='contest'&&!(T.touch&&T.touch.has(u))){u.ai.slot='tank';const q=surroundOf(team).find(o=>o.k==='door');return{x:q.x,y:q.y,r:4,kind:'fight'}}
+  if(u.role==='tank'&&!AIF[team].area){const E=T.enemyC;if(E&&Math.hypot(E.x-pa.px,E.y-pa.py)<24*M)return{x:pa.px+(E.x-pa.px)*.35,y:pa.py+(E.y-pa.py)*.35,r:7,kind:'fight'};return{x:pa.px,y:pa.py,r:7,kind:'fight'}} // test switch: the old point-first play
+  if(u.role==='tank')return mainAnchor(team);
+  if(u.id==='mei'){const a=mainAnchor(team);return{...a,hold:null,r:8}}
+  // they sit on the point (or we are fighting over it): surround it instead of walking in one by one
+  if(AIF[team].area&&AIF[team].sur&&(T.phase==='contest'||T.phase==='cap')&&u.id!=='tracer'){const sl=surroundOf(team);const my=G.units.filter(a=>a.team===team&&!a.dead&&!a.summon&&a.role!=='tank'&&a.id!=='tracer'&&!(T.touch&&T.touch.has(a)));
+    const order=my.sort((a,b)=>(a.role==='damage'?0:1)-(b.role==='damage'?0:1)||G.units.indexOf(a)-G.units.indexOf(b));const i=order.indexOf(u);
+    const pref=u.role==='damage'?['bridgeS','bridgeN','doorW','door']:['doorW','bridgeN','door','bridgeS'];const taken=new Set(order.slice(0,Math.max(0,i)).map(a=>a.ai.slot));
+    const k=pref.find(q=>!taken.has(q))||pref[0];u.ai.slot=k;const q=sl.find(o=>o.k===k);return{x:q.x,y:q.y,r:4,kind:'fight'}}
   // supports play off the tank: a few metres behind, in cover
   if(u.role==='support'){if(u.id==='lucio'){const pf=lucioPartner(u,c);if(pf&&!pf.dead)return{x:pf.x,y:pf.y,r:6,kind:'fight'}}
     const f=tank||(team==='blue'?G.player:null)||front;const fx=f.x??front.x,fy=f.y??front.y;const d=Math.hypot(st.px-fx,st.py-fy)||1;
@@ -1564,7 +1634,11 @@ function spotScore(u,c,an,tgt,mode,x,y){
   const E=G.T[team].enemyC,tk=c.allies.find(a=>a.role==='tank'&&!a.summon);
   if(E&&tk&&u.role!=='tank'&&u.id!=='tracer'&&an.kind!=='point'){const dT=Math.hypot(tk.x-E.x,tk.y-E.y),dP=Math.hypot(x-E.x,y-E.y);if(dP<dT-3*M)s-=(dT-3*M-dP)/M*1.1}
   const luc=c.allies.find(a=>a.id==='lucio'&&a!==u);if(luc&&Math.hypot(luc.x-x,luc.y-y)<11*M)s+=3;
-  if(u.id!=='tracer'&&an.kind==='fight'){const dp=Math.hypot(x-N.point.px,y-N.point.py)/M;if(dp>22)s-=(dp-22)*.6}
+  // stay in the fight's area (the main street and around it; the point while capping or contesting), and don't walk
+  // out past their doorways into their side of the map (Tracer's flank excepted)
+  if(u.id!=='tracer'&&an.kind==='fight'){const T=G.T[team],bc=T.bc||MAIN_C;const dp=Math.hypot(x-bc.x,y-bc.y)/M;if(dp>20)s-=(dp-20)*.6;
+    if(inArea('main',x,y)||inArea('pt',x,y))s+=1.5;
+    const ch=CHOKES[team];if(ch.length){const lim=team==='blue'?Math.max(...ch.map(q=>q.y))+2*M:Math.min(...ch.map(q=>q.y))-2*M;const past=team==='blue'?y-lim:lim-y;if(past>0)s-=past/M*1.5}}
   // they hold a group-wipe ult (Graviton-style flux, Blizzard, Annihilation, Pulse Bomb): don't stack up
   if(c.aoeUlt&&mode!=='escape'){let n=0;for(const a of c.allies)if(a!==u&&!a.summon&&Math.hypot(a.x-x,a.y-y)<4.5*M)n++;if(n>=2)s-=(n-1)*3.5}
   // crossfire: damage heroes take a different angle on their group than our tank does
@@ -1616,7 +1690,7 @@ function tactics(u,c){
     else if(pk.st==='hide'&&pk.t<=0&&!(u.reload>0)&&!tankOut&&(hpf>=(c.healer?.55:.62)||urgentFor(team)||hpf>=.45&&burst<.05&&T.ts==='engage'&&(T.pow||[1,1])[0]>=(T.pow||[1,1])[1])){pk.st='peek'}
     if(pk.st==='hide'){mode='hide';if(u.d.ammo&&u.ammo<u.d.ammo&&!c.foes.length)reloadNow(u)}}
   else if(u.ai.pk)u.ai.pk.st='peek';
-  u.ai.mode=mode==='fight'&&an.hold?'hold':mode==='fight'&&(an.kind==='point'||an.kind==='dive')?an.kind:mode;
+  u.ai.mode=mode==='fight'&&an.side?'side':mode==='fight'&&an.hold?'hold':mode==='fight'&&(an.kind==='point'||an.kind==='dive')?an.kind:mode;
   if(mode==='hide'){
     // supports hide where they can still see (and heal) the team
     if(u.role==='support'){const p=bestSpot(u,u.x,u.y,6,(x,y)=>spotScore(u,c,an,tgtPos,'hide',x,y));if(p){u.ai.pos=p;goTo(u,p,1.8)}return}
@@ -1625,11 +1699,25 @@ function tactics(u,c){
   const pos=bestSpot(u,an.x,an.y,an.r,(x,y)=>spotScore(u,c,an,tgtPos,mode,x,y));
   if(pos){u.ai.pos=pos;goTo(u,pos,u.ai.risk)}
 }
-// which choke to hold: the one nearest where they were last seen (or learned to come from); none if they are already past it
-function pickChoke(team){const ch=CHOKES[team];if(!ch.length)return null;const T=G.T[team];const pa=N.point;
+// which doorway to hold: the one nearest where they were last seen (or learned to come from); else their shortest way in
+function pickChoke(team){const ch=CHOKES[team];if(!ch.length)return null;const T=G.T[team];
   let E=T.enemyC;if(!E&&LRN&&LRN.hot[team]&&LRN.hot[team].length)E=LRN.hot[team][0];if(!E)return ch[0];
-  const b=ch.slice().sort((a,c)=>Math.hypot(a.x-E.x,a.y-E.y)-Math.hypot(c.x-E.x,c.y-E.y))[0];
-  if(Math.hypot(E.x-pa.px,E.y-pa.py)<Math.hypot(b.x-pa.px,b.y-pa.py)-3*M)return null;return b}
+  const d=q=>Math.hypot(q.x-E.x,q.y-E.y);const a=ch.slice().sort((p,q)=>d(p)-d(q))[0];
+  const b=AIF[team].ch2?CHOKES2[team].slice().sort((p,q)=>d(p)-d(q))[0]:null;return b&&d(b)<d(a)-4*M?b:a}
+// the tank's place in the main-street fight: meet them in the street if they are in it, else push up and hold their doorway
+function mainAnchor(team){const T=G.T[team];const kf=knownFoes(team,2).filter(e=>!e.summon);
+  const inS=kf.filter(e=>{const k=G.K[team].get(e);return inArea('main',k.x,k.y)||inArea('pt',k.x,k.y)});
+  if(inS.length){const ex=inS.reduce((s,e)=>s+G.K[team].get(e).x,0)/inS.length,ey=inS.reduce((s,e)=>s+G.K[team].get(e).y,0)/inS.length;
+    const ox=MAIN_C.x,oy=MAIN_C.y+(team==='blue'?-8:8)*M;const d=Math.hypot(ox-ex,oy-ey)||1;const k=Math.min(1,7*M/d);
+    return{x:ex+(ox-ex)*k,y:ey+(oy-ey)*k,r:6,kind:'fight'}}
+  const ch=pickChoke(team);
+  // hold their doorway when they are (or were just) coming through it; while we don't know where they are, stand where
+  // both the doorways and the point are one short rotation away: the street's garden edge on their half
+  if(ch&&AIF[team].hold2){const E=T.enemyC;const fresh=E&&knownFoes(team,3).some(e=>!e.summon);
+    if(!fresh||Math.hypot(E.x-ch.x,E.y-ch.y)>14*M){const hx=(ch.hx+CENTRAL[team].x)/2,hy=(ch.hy+CENTRAL[team].y)/2;return{x:hx,y:hy,r:4,kind:'fight',hold:ch}}}
+  if(ch)return{x:ch.hx,y:ch.hy,r:3,kind:'fight',hold:ch};
+  return{x:MAIN_C.x,y:MAIN_C.y,r:6,kind:'fight'}}
+const CENTRAL={blue:{x:420,y:600+OY},red:{x:420,y:552+OY}}; // the street's garden edge, a little onto their half
 const urgentFor=team=>{const foe=team==='blue'?'red':'blue';return(G.cp.owner===foe&&G.cp.pct[foe]>=85)||(G.ot&&G.cp.owner===foe)};
 function goTo(u,pos,risk){if(Math.hypot(pos.x-u.x,pos.y-u.y)<10&&pos.l===u.l){u.path=[];return}
   if(u.dest&&Math.hypot(u.dest.x-pos.x,u.dest.y-pos.y)<14&&u.path.length&&G.el-(u.pathT||0)<1.2)return;
@@ -1644,7 +1732,7 @@ function aiAct(u,dt){
   if(u.path.length){followPath(u,dt);return}
   // strafe (A-D) around the chosen spot while fighting so enemy aim has to track — but never strafe out into the open
   const t=u.ai.c&&u.ai.c.tgt;const pos=u.ai.pos;
-  if(t&&(u.ai.mode==='fight'||u.ai.mode==='point'||u.ai.mode==='hold')&&!(u.st.block)&&!(u.st.scoped)){u.ai.sT=(u.ai.sT||0)-dt;if(u.ai.sT<=0){u.ai.sT=rnd(.2,.6);u.ai.sd=Math.random()<.5?-1:1;if(Math.random()<.15)jump(u)}
+  if(t&&(u.ai.mode==='fight'||u.ai.mode==='point'||u.ai.mode==='hold'||u.ai.mode==='side')&&!(u.st.block)&&!(u.st.scoped)){u.ai.sT=(u.ai.sT||0)-dt;if(u.ai.sT<=0){u.ai.sT=rnd(.2,.6);u.ai.sd=Math.random()<.5?-1:1;if(Math.random()<.15)jump(u)}
     const a=Math.atan2(t.y-u.y,t.x-u.x)+Math.PI/2*u.ai.sd;const s=speedOf(u)*.75*dt;const nx=u.x+Math.cos(a)*s,ny=u.y+Math.sin(a)*s;
     const TH=THR[u.team];const far=pos&&Math.hypot(nx-pos.x,ny-pos.y)>1.4*M;const worse=TH[tci(nx,ny)]>TH[tci(u.x,u.y)]+.6;
     if(far||worse||!moveBy(u,Math.cos(a)*s,Math.sin(a)*s))u.ai.sd*=-1}
@@ -1763,9 +1851,11 @@ let uiT=0;
 function updUI(dt){
   uiT-=dt;if(uiT>0||!G)return;uiT=.1;const u=G.player;
   {const T=G.T.blue||{};const el=document.getElementById('tstate');const pw=T.pow?` ・ 戦力 ${T.pow[0].toFixed(1)} vs ${T.pow[1].toFixed(1)}`:'';
-    const st=G.call!=='auto'?{group:'あなたについていく',push:'ポイントへ突撃',hold:'その場で待機',retreat:'後退中'}[G.call]:G.cp.locked>0?`スポーンで待機（開始まで ${Math.ceil(G.cp.locked)}秒）`:T.ts==='engage'?(T.adv?'有利：ポイントに乗る':(T.turn===false?'交戦中（スキル待ち・受け）':'交戦中')):T.retreat&&G.el-T.retreat<25?'リグループ中（負けた戦闘から撤退）':'集合中：そろったら入る';
+    const PH={main:'大通りを取る（ポイントはまだ踏まない）',cap:'エリアを取った：ポイントを確保',hold:'保持中：タンクは敵の出口を前守り、トレーサーはサイド',contest:'ポイント争奪：自陣側の入口と橋から囲み、トレーサーが挟む'};
+    const st=G.call!=='auto'?{group:'あなたについていく',push:'ポイントへ突撃',hold:'その場で待機',retreat:'後退中'}[G.call]:G.cp.locked>0?`スポーンで待機（開始まで ${Math.ceil(G.cp.locked)}秒）`:T.ts==='engage'?(PH[T.phase]||'交戦中')+(T.turn===false?'（スキル待ち・受け）':''):T.retreat&&G.el-T.retreat<25?'リグループ中（負けた戦闘から撤退）':'集合中：そろったら入る';
+    const ar=T.area?' ・ エリア '+['main','left','pt'].map(a=>`${AREA_SRC[a].name} ${T.area[a][0]}:${T.area[a][1]}`).join(' / '):'';
     const f=T.focus&&!T.focus.dead?`フォーカス：${T.focus.name}`:'フォーカス：—';
-    const html=`味方AI：${st}<small>${f}${pw}${T.style?' ・ '+(T.style==='brawl'?'ブロール':'ポーク'):''}</small>`;if(el.innerHTML!==html)el.innerHTML=html}
+    const html=`味方AI：${st}<small>${f}${pw}${T.style?' ・ '+(T.style==='brawl'?'ブロール':'ポーク'):''}${ar}</small>`;if(el.innerHTML!==html)el.innerHTML=html}
   if(u){const sig=(u.perkNeed||'')+(u.plv||1)+JSON.stringify(u.perks||{})+Math.floor((u.pxp||0)/50);if(sig!==G.pbSig){G.pbSig=sig;buildPerkBar()}}
   document.getElementById('time').textContent=G.cp.locked>0?`開始 ${Math.ceil(G.cp.locked)}`:G.ot?'OT':fmt(G.el);document.getElementById('cap').textContent=`${Math.floor(G.cp.pct.blue)}% - ${Math.floor(G.cp.pct.red)}%`;document.getElementById('capbar').style.width=G.cp.pct.blue+'%';document.getElementById('kd').textContent=`${G.bk} - ${G.rk}`;
   if(u){const tm=Math.max(totalMax(u),totalHp(u));const hp=document.getElementById('meHp');hp.innerHTML=`<i style="width:${u.hp/tm*100}%;background:${u.hp/u.d.hp<.35?'var(--red)':'#f4f7f8'}"></i><i style="width:${u.armor/tm*100}%;background:var(--armor)"></i><i style="width:${u.shield/tm*100}%;background:var(--shield)"></i><i style="width:${overSum(u)/tm*100}%;background:var(--green)"></i>`;
