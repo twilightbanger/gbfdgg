@@ -104,6 +104,7 @@ button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
         <button class="b" id="pause">一時停止</button>
         <button class="b" id="zoom">全体表示</button>
         <button class="b" id="aimb">オートエイム OFF</button>
+        <button class="b" id="groundv" title="マップの下地：衛星写真風 / 元の画像">下地：衛星</button>
         <button class="b" id="walkv">歩ける場所</button>
         <button class="b" id="aiv" title="味方AIの状態（交戦・遮蔽・退避など）を頭上に表示">AI表示</button>
         <button class="b" id="thrv" title="味方が把握している敵から撃たれる場所（赤いほど多くの敵の射線が通る）">射線マップ</button>
@@ -231,7 +232,7 @@ const ENTRANCES=[{x0:362,y0:358,x1:404,y1:373},{x0:425,y0:412,x1:466,y1:427},
 // wall lines added to the layout (mirrored as well): the health-pack room's back wall, so the blue one matches the red one;
 // the point pavilion's east side (walled top and bottom, open in the middle) and the middle of its west side
 // (between the two garden bridges, which stay open)
-const EXTRA_SEGS=[[335,232,366,232],[690,497,690,551],[526,543,526,576]];
+const EXTRA_SEGS=[[335,232,366,232],[690,497,690,551],[526,543,526,576],[423,530,423,576]]; // last: splits the street's wide opening onto the garden
 const SPAWN_CUTS=[{x0:198,y0:0,x1:240,y1:20},{x0:372,y0:0,x1:414,y1:56}];
 const SEGS=[];const SEGC=new Uint8Array(GN);
 // The map is made exactly symmetric: the blue (top) half is the master and the red half is its mirror (layout y -> MIR-y,
@@ -309,7 +310,10 @@ function findDoorways(team,area,target){const att=team==='blue'?'red':'blue';con
       if(distToArea(area,ex,ey)>2.5*M)continue; // a narrow spot deeper in their rooms, not a doorway onto the area
       // hold spot: ~4.5 m inside the area from the doorway, along their way in
       let h=cells.length-1;for(let q=e;q<cells.length;q++){if(Math.hypot(ccx(cells[q].i)-ex,ccy(cells[q].i)-ey)>=4.5*M){h=q;break}}
-      const hi=cells[h].i;if(!out.some(o=>Math.hypot(o.x-ex,o.y-ey)<5*M))out.push({x:ex,y:ey,hx:ccx(hi),hy:ccy(hi),w:WID[ei],len:cells.length,area})}}
+      const hi=cells[h].i;
+      // the other way: a few metres back from the doorway on the attacker's side, where that team holds its own exit
+      let b=0;for(let q=e;q>=0;q--){if(Math.hypot(ccx(cells[q].i)-ex,ccy(cells[q].i)-ey)>=3.5*M){b=q;break}}const bi=cells[b].i;
+      if(!out.some(o=>Math.hypot(o.x-ex,o.y-ey)<5*M))out.push({x:ex,y:ey,hx:ccx(hi),hy:ccy(hi),bx:ccx(bi),by:ccy(bi),w:WID[ei],len:cells.length,area})}}
   for(const i of blocked)TEMP[i]=0;out.sort((a,b)=>a.len-b.len);return out}
 function buildChokes(){for(const team of ['blue','red']){CHOKES[team]=findDoorways(team,'main',MAIN_C);
   // their ways to the point that skip the street (the south-east corridor, the east side): held only when they come that way
@@ -490,7 +494,7 @@ function hitscan(src,ang,range,dmgFn,color,opt={}){src.lastFire=G.el;
   return r;
 }
 // projectiles ---------------------------------------------
-function proj(src,ang,o){src.lastFire=G.el;const s=o.speed*M;const z0=(src.z||0)+1.5;const ad=Math.max(M,Math.hypot((src.aimX??src.x)-src.x,(src.aimY??src.y)-src.y));const az=o.home?(o.home.z||0)+1.1:(src.aimZ??z0-.2);const p={z:z0,vz:(az-z0)/(ad/s),ox:src.x,oy:src.y,x:src.x+Math.cos(ang)*12,y:src.y+Math.sin(ang)*12,l:src.l,vx:Math.cos(ang)*s,vy:Math.sin(ang)*s,src,team:src.team,r:o.r||3,life:(o.range||40)*M/s,c:o.c||'#fff',...o};G.projs.push(p);return p}
+function proj(src,ang,o){src.lastFire=G.el;const s=o.speed*M;const z0=(src.z||0)+1.5;const ad=Math.max(M,Math.hypot((src.aimX??src.x)-src.x,(src.aimY??src.y)-src.y));const az=o.home?(o.home.z||0)+1.1:(src.aimZ??z0-.2);const p={z:z0,vz:(az-z0)/(ad/s),ox:src.x,oy:src.y,x:src.x+Math.cos(ang)*12,y:src.y+Math.sin(ang)*12,l:src.l,vx:Math.cos(ang)*s,vy:Math.sin(ang)*s,src,team:src.team,r:o.r||3,life:(o.range||40)*M/s,c:o.c||'#fff',tag:CUR_AB,...o};G.projs.push(p);return p}
 function stepProjs(dt){
   const keep=[];
   for(const p of G.projs){
@@ -639,12 +643,18 @@ const emax=u=>u.st.overclock>0&&PK(u,'overcharged')?150:100;
 function melee(u){if((u.cd.melee||0)>0||u.dead||incapped(u))return;u.cd.melee=.8;const a=aimAng(u);for(const e of enemiesOf(u)){const d=D2(u,e);if(d>2.5*M+R_HIT)continue;if(Math.abs(angDiff(Math.atan2(e.y-u.y,e.x-u.x),a))>.9||!sees(u,e))continue;dmg(e,40,u);knock(e,a,4,.12)}G.fx.push({type:'cone',x:u.x,y:u.y,a,r:2.5*M,c:'#ffffff',t:.12})}
 function reloadNow(u){const d=u.d;if(u.reload>0||!d.ammo)return;if(u.ammo>=d.ammo&&!(u.id==='kiriko'&&u.ammo2<d.ammo2))return;
   u.reload=(u.id==='ashe'?0.5+0.2*(d.ammo-u.ammo):d.reload)*rate(u);u.reloadingAll=true}
+// ability being cast right now (its projectiles get tagged with the name), and the name pop-ups over the caster
+let CUR_AB=null;
+function callout(u,key,text){if(!G||u.summon)return;const d=u.d;const t=text||d.keys[key];if(!t||t==='—')return;const ult=key==='q';
+  G.calls=(G.calls||[]).filter(c=>c.u!==u||c.ult);G.calls.push({u,text:t,ult,t:ult?2.4:1.5,max:ult?2.4:1.5});
+  // an enemy ult is announced to the whole screen, like the voice line you hear from anywhere in the real game
+  if(ult&&u.team==='red')G.banner={text:`⚠ 敵の${u.name}：${t}！`,c:'#ff5d62',t:2.8};else if(ult&&u.team==='blue'&&u!==G.player)G.banner={text:`味方の${u.name}：${t}`,c:'#4fb3ff',t:1.8}}
 function use(u,key){
   if(u.dead||incapped(u))return false;const d=u.d,k=KIT[u.id];if(!k||!k[key])return false;
-  if(key==='q'){if(u.ult<d.ult)return false;if(u.ctrl==='ai'&&u.id!=='lucio'&&G.T&&G.T[u.team]&&G.T[u.team].ultStop)return false;if(k.q(u)!==false){u.ult=0;if(typeof logUlt==='function')logUlt(u);log('skill',`${u.team==='blue'?'':'［敵］'}${u.name}：${d.keys.q}！`);return true}return false}
+  if(key==='q'){if(u.ult<d.ult)return false;if(u.ctrl==='ai'&&u.id!=='lucio'&&G.T&&G.T[u.team]&&G.T[u.team].ultStop)return false;CUR_AB=d.keys.q;const ok=k.q(u)!==false;CUR_AB=null;if(ok){u.ult=0;callout(u,'q');if(typeof logUlt==='function')logUlt(u);log('skill',`${u.team==='blue'?'':'［敵］'}${u.name}：${d.keys.q}！`);return true}return false}
   if((u.cd[key]||0)>0&&!(key==='shift'&&(u.id==='tracer'||u.id==='sojourn')))return false;
-  const r=k[key](u);if(r===false)return false;
-  if(d.cds&&d.cds[key]&&r!=='nocd')u.cd[key]=d.cds[key];
+  CUR_AB=key==='lmb'?null:d.keys[key];const r=k[key](u);CUR_AB=null;if(r===false)return false;
+  if(d.cds&&d.cds[key]&&r!=='nocd'){u.cd[key]=d.cds[key];callout(u,key)}
   return true;
 }
 const nearestTo=(list,x,y)=>list.slice().sort((a,b)=>Math.hypot(a.x-x,a.y-y)-Math.hypot(b.x-x,b.y-y))[0];
@@ -815,7 +825,7 @@ sigma:{
   rmbDown(u){const b=G.barriers.find(b=>b.owner===u&&b.kind==='sigma');
     if(b){if(!b.moving){G.barriers=G.barriers.filter(x=>x!==b);u.barrierHp=b.hp;u.barrierT=2}return}
     if((u.cd.barrier||0)>0||u.dead||incapped(u))return;const a=aimAng(u);
-    G.barriers.push({team:u.team,owner:u,kind:'sigma',x:u.x+Math.cos(a)*1.5*M,y:u.y+Math.sin(a)*1.5*M,ang:a,w:3.25*M,hp:u.barrierHp??700,max:700,t:1e9,moving:true,dir:a,trav:0})},
+    callout(u,'rmb');G.barriers.push({team:u.team,owner:u,kind:'sigma',x:u.x+Math.cos(a)*1.5*M,y:u.y+Math.sin(a)*1.5*M,ang:a,w:3.25*M,hp:u.barrierHp??700,max:700,t:1e9,moving:true,dir:a,trav:0})},
   rmbUp(u){const b=G.barriers.find(b=>b.owner===u&&b.kind==='sigma');if(b)b.moving=false},
   rmb(u){KIT.sigma.rmbDown(u)},
   shift(u){u.st.grasp=2;G.barriers.push({team:u.team,owner:u,kind:'grasp',x:u.x,y:u.y,ang:aimAng(u),w:1.8*M,hp:1e9,max:1e9,t:2,follow:true})},
@@ -1003,13 +1013,73 @@ const ZP=M*ZK; // screen px per metre of height
 function resize(){const r=cv.getBoundingClientRect();dpr=Math.min(2,devicePixelRatio||1);VW=r.width;VH=r.height;cv.width=Math.round(VW*dpr);cv.height=Math.round(VH*dpr)}
 let groundCv=null,LANTERNS=[];
 function rng(seed){let s=seed>>>0;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296}}
-function buildGround(){const c=document.createElement('canvas');c.width=W*2;c.height=H*2;const g=c.getContext('2d');
-  // the strips above/below the layout: same dark backdrop as the layout image
-  g.fillStyle='#232120';g.fillRect(0,0,W*2,H*2);g.drawImage(mapImg,0,OY*2,W*2,NM.H*2);
-  g.scale(2,2);
+// ground style: 'sat' = a daytime aerial photo look generated from the layout, 'img' = the original night render
+let groundMode='sat';try{groundMode=localStorage.getItem('owlab-ground')||'sat'}catch(e){}
+// fewer pixels on phones: a huge canvas can come out blank there
+const GSC=matchMedia&&matchMedia('(pointer:coarse)').matches?1.5:2;
+function buildGround(){const c=document.createElement('canvas');c.width=Math.round(W*GSC);c.height=Math.round(H*GSC);const g=c.getContext('2d');
+  if(groundMode==='sat')paintSatellite(g,c.width,c.height);
+  else{g.fillStyle='#232120';g.fillRect(0,0,c.width,c.height);g.drawImage(mapImg,0,OY*GSC,W*GSC,NM.H*GSC)}
+  g.scale(GSC,GSC);
   for(const team of ['blue','red'])drawSpawnRoom(g,team);
   g.fillStyle='rgba(0,0,0,.28)';g.strokeStyle='rgba(0,0,0,.3)';g.lineWidth=6;g.lineCap='round';
   for(const b of BOX){if(b.kind==='seg'){g.beginPath();g.moveTo(b.ax+2,b.ay+3);g.lineTo(b.bx+2,b.by+3);g.stroke();continue}const m=v=>v*M;g.fillRect(m(b.x)+2,m(b.y)+2,m(b.w),m(b.h))}groundCv=c;LANTERNS=[]}
+// Aerial "satellite" ground. Every nav cell gets a material: walkable floor is stone paving, wooden deck or garden
+// grass (read from the colours of the layout image, mirrored like the walls), anything you cannot walk on is rooftops
+// and tree tops. Painted per pixel with noise, tile joints, ambient occlusion along walls and roof shadows cast
+// south-east, so it reads like a photo from above while the walls stay exactly where they are.
+function paintSatellite(g,cw,ch){const sc=cw/W;const NR=Math.round(NM.H/CELL);
+  // materials by place (the night render's colours are too dark to read): the garden in front of the pavilion is grass,
+  // the pavilion and the flank corridor's rooms are wooden floors, everything else stone paving
+  const wg=new Float32Array(GN),ww=new Float32Array(GN),walk=new Float32Array(GN);
+  for(let r=0;r<GH;r++)for(let c=0;c<GW;c++){const i=r*GW+c;walk[i]=LY[0][i]===1||LY[1][i]===1||STAIR[i]||SPAWNC[i]?1:0;
+    const x=c*CELL+3,ly0=r*CELL+3-OY;if(SPAWNC[i]||ly0<0||ly0>1152)continue;const ly=ly0>576?1152-ly0:ly0;
+    if(x>=428&&x<528&&ly>=490)wg[i]=1;else if(x>=528&&x<694&&ly>=488)ww[i]=1;else if(x>=195&&x<283&&ly>=440)ww[i]=.8}
+  // soften material borders over one cell
+  const blur=a=>{const o=new Float32Array(GN);for(let r=0;r<GH;r++)for(let c=0;c<GW;c++){let t=0,n=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const y=r+dy,x=c+dx;if(x<0||y<0||x>=GW||y>=GH)continue;t+=a[y*GW+x];n++}o[r*GW+c]=t/n}return o};
+  const WG=blur(wg),WW=blur(ww);
+  // noise tiles (wrapping), sampled without interpolation for speed; a coarse value noise for large patches
+  const R0=rng(7);const NZ=new Float32Array(65536);for(let i=0;i<65536;i++)NZ[i]=R0();
+  const nz=(x,y)=>NZ[((y&255)<<8)|(x&255)];
+  const vn=(x,y)=>{const xi=Math.floor(x),yi=Math.floor(y),fx=x-xi,fy=y-yi,sx=fx*fx*(3-2*fx),sy=fy*fy*(3-2*fy);const a=nz(xi,yi),b=nz(xi+1,yi),c=nz(xi,yi+1),d=nz(xi+1,yi+1);return a+(b-a)*sx+(c-a+(a-b+d-c)*sx)*sy};
+  const CR=Math.ceil(ch/8)+2,CC=Math.ceil(cw/8)+2;const big=new Float32Array(CR*CC);for(let y=0;y<CR;y++)for(let x=0;x<CC;x++){const X=x*8/sc,Y=y*8/sc;big[y*CC+x]=vn(X/60,Y/60)*.55+vn(X/22+50,Y/22)*.3+vn(X/9,Y/9+80)*.15}
+  const bigAt=(px_,py_)=>{const x=px_/8,y=py_/8,xi=x|0,yi=y|0,fx=x-xi,fy=y-yi;const a=big[yi*CC+xi],b=big[yi*CC+xi+1],c=big[(yi+1)*CC+xi],d=big[(yi+1)*CC+xi+1];return a+(b-a)*fx+(c-a+(a-b+d-c)*fx)*fy};
+  // roofs: lots on an offset grid, each a gable roof (ridge, two lit slopes) or a clump of trees
+  const LOTW=64,LOTH=46;const lotOf=(x,y)=>{const ry=Math.floor(y/LOTH);const ox=(ry&1)*LOTW*.5;const rx=Math.floor((x+ox)/LOTW);const h=nz(rx*7+3,ry*13+5);
+    return{rx,ry,x0:rx*LOTW-ox,y0:ry*LOTH,h,type:h<.2?'tree':h<.55?'kawara':h<.8?'dark':'copper',ns:nz(rx*3,ry*5)<.5}};
+  const ROOF={kawara:[92,98,110],dark:[64,66,72],copper:[92,128,112],tree:[52,86,44]};
+  const img=g.createImageData(cw,ch),D=img.data;const lotCache=new Map();
+  const cellAt=(x,y)=>{const c=x/CELL|0,r=y/CELL|0;return c<0||r<0||c>=GW||r>=GH?-1:r*GW+c};
+  for(let py=0;py<ch;py++){const y=py/sc;for(let pxl=0;pxl<cw;pxl++){const x=pxl/sc;const i=cellAt(x,y);const o=(py*cw+pxl)*4;let r,gg,b;
+      const n=nz(pxl,py),lg=bigAt(pxl,py);
+      if(i<0||!walk[i]){ // rooftops / trees
+        const key=(Math.floor(y/LOTH)<<12)|((Math.floor((x+(Math.floor(y/LOTH)&1)*LOTW*.5)/LOTW))&4095);let L=lotCache.get(key);if(!L){L=lotOf(x,y);lotCache.set(key,L)}
+        const col=ROOF[L.type];const lx=x-L.x0,ly=y-L.y0;
+        if(L.type==='tree'){const t=vn(x/5+L.rx*9,y/5+L.ry*9)*.6+n*.4;const k=.55+t*.75;r=col[0]*k;gg=col[1]*k;b=col[2]*k}
+        else{const edge=Math.min(lx,LOTW-lx,ly,LOTH-ly);
+          const along=L.ns?ly:lx,span=L.ns?LOTH:LOTW,across=L.ns?lx:ly;const slope=along<span/2?1.12:.8; // sun from the north-west
+          const stripe=((across/2.2)|0)&1?1:.9;const ridge=Math.abs(along-span/2)<1.4?1.25:1;
+          const k=slope*stripe*ridge*(.92+n*.16)*(.9+lg*.2)*(edge<1.6?.55:1);r=col[0]*k;gg=col[1]*k;b=col[2]*k}}
+      else{ // floor
+        const fg=WG[i],fw=WW[i],fs=Math.max(0,1-fg-fw);
+        // stone paving: 1 m slabs with joints, each slab its own shade
+        const tx=Math.floor(x/14),ty=Math.floor(y/14),jx=x-tx*14,jy=y-ty*14;const tv=nz(tx*5+1,ty*7+2);const joint=jx<.9||jy<.9?.72:1;
+        const sk=(.86+tv*.2)*joint*(.88+lg*.24)*(.95+n*.1);
+        const sr=158*sk,sgc=152*sk,sb=142*sk;
+        // wooden deck: planks along x with staggered ends
+        const pl=Math.floor(y/4.5),pe=(x+nz(pl,3)*40)%34;const wk=(.8+nz(pl,9)*.25)*(pe<.8||y-pl*4.5<.6?.7:1)*(.9+vn(x/3,pl*3.1)*.2);
+        const wr=150*wk,wgc=104*wk,wb=62*wk;
+        // grass: patchy, with darker clumps
+        const gk=(.72+vn(x/4,y/4)*.35+n*.12)*(.85+lg*.3);const gr=78*gk,ggc=118*gk,gb=52*gk;
+        r=sr*fs+wr*fw+gr*fg;gg=sgc*fs+wgc*fw+ggc*fg;b=sb*fs+wb*fw+gb*fg;
+        // ambient occlusion along walls, and the shadow roofs to the north-west throw onto the floor
+        const wd=WID[i];let k=wd<=1?.72:wd<=2?.85:wd<=3?.94:1;
+        const sh=cellAt(x-7,y-9);if(sh>=0&&!walk[sh])k*=.68;else{const s2=cellAt(x-3.5,y-4.5);if(s2>=0&&!walk[s2])k*=.8}
+        r*=k;gg*=k;b*=k}
+      D[o]=r;D[o+1]=gg;D[o+2]=b;D[o+3]=255}}
+  g.putImageData(img,0,0);
+  // a light haze so the heroes and effects stay the brightest things on screen
+  g.fillStyle='rgba(12,18,24,.28)';g.fillRect(0,0,cw,ch)}
 // spawn room floor: team-tinted tiles, the hall to the main room, a label
 function drawSpawnRoom(g,team){const S=SPAWNS[team];const rgb=team==='blue'?'79,179,255':'255,93,98';
   const cells=[...S.room,...S.door.map(d=>d.i)];
@@ -1075,6 +1145,7 @@ function drawMacro(){const T=G.T.blue;if(!T||!T.area)return;ctx.save();ctx.font=
     ctx.fillStyle=`rgba(${rgb},.95)`;ctx.textAlign='center';ctx.fillText(label,q.x,q.y-13)};
   // CHOKES.blue = the enemy's doorways (we hold them), CHOKES.red = ours
   for(const q of CHOKES.blue)mark(q,'255,93,98','敵の出口');for(const q of CHOKES.red)mark(q,'79,179,255','味方の出口');
+  if(T.rgHold){const h=T.rgHold;ctx.strokeStyle='rgba(79,179,255,.95)';ctx.lineWidth=3;ctx.setLineDash([6,4]);ctx.beginPath();ctx.arc(h.bx,h.by,20,0,7);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#9fe3ff';ctx.textAlign='center';ctx.fillText('ここで出口を守る',h.bx,h.by+34)}
   const tk=G.units.find(u=>u.team==='blue'&&u.role==='tank'&&!u.dead);if(tk&&tk.ai.an&&tk.ai.an.hold){const h=tk.ai.an;ctx.strokeStyle='rgba(159,227,255,.9)';ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(tk.x,tk.y);ctx.lineTo(h.hold.x,h.hold.y);ctx.stroke();ctx.setLineDash([])}
   ctx.restore()}
 function drawCapZone(){const own=G.cp.owner;const col=own==='blue'?'79,179,255':own==='red'?'255,93,98':'242,211,138';
@@ -1107,7 +1178,14 @@ function draw(dt){
   for(const pk of G.packs){ctx.globalAlpha=pk.t>0?.25:1;const r=pk.big?9:7;ctx.fillStyle='rgba(0,0,0,.35)';ctx.beginPath();ctx.ellipse(pk.x+2,pk.y+3,r,r*.6,0,0,7);ctx.fill();ctx.fillStyle=pk.big?'#ffe28a':'#fff';ctx.beginPath();ctx.arc(pk.x,pk.y-4,r,0,7);ctx.fill();ctx.fillStyle='#e04848';ctx.fillRect(pk.x-r*.55,pk.y-5.5,r*1.1,3);ctx.fillRect(pk.x-1.5,pk.y-4-r*.55,3,r*1.1);ctx.globalAlpha=1}
   for(const f of G.fields){ctx.save();const col={disruptor:'185,140,255',vortex:'194,139,255',blizzard:'191,232,255',kekkai:'255,179,217',flux:'176,164,255',rush:'255,214,240'}[f.kind]||'255,255,255';
     const zo=(f.z||0)*ZP;ctx.translate(0,-zo);ctx.fillStyle=`rgba(${col},.18)`;ctx.strokeStyle=`rgba(${col},.85)`;ctx.lineWidth=2;
-    if(f.kind==='rush'){ctx.translate(f.x,f.y);ctx.rotate(f.a);ctx.fillRect(0,-f.w,f.len,f.w*2);ctx.strokeRect(0,-f.w,f.len,f.w*2)}else{ctx.beginPath();ctx.arc(f.x,f.y,f.r,0,7);ctx.fill();ctx.stroke()}ctx.restore()}
+    const foe=f.team==='red';const pul=.5+.5*Math.sin(performance.now()/140);
+    if(f.kind==='rush'){ctx.translate(f.x,f.y);ctx.rotate(f.a);ctx.fillRect(0,-f.w,f.len,f.w*2);ctx.strokeRect(0,-f.w,f.len,f.w*2);ctx.rotate(-f.a);ctx.translate(-f.x,-f.y)}
+    else{ctx.beginPath();ctx.arc(f.x,f.y,f.r,0,7);ctx.fill();ctx.stroke();
+      // enemy area: a pulsing red warning edge, so "don't stand here" reads at a glance
+      if(foe){ctx.strokeStyle=`rgba(255,70,80,${.55+.4*pul})`;ctx.lineWidth=3;ctx.setLineDash([8,6]);ctx.lineDashOffset=-performance.now()/40;ctx.beginPath();ctx.arc(f.x,f.y,f.r+3,0,7);ctx.stroke();ctx.setLineDash([])}}
+    const nm=FIELD_NAME[f.kind];if(nm){const tx=f.kind==='rush'?f.x+Math.cos(f.a)*f.len*.5:f.x,ty=f.kind==='rush'?f.y+Math.sin(f.a)*f.len*.5:f.y-(f.r||0)-6;
+      tag(tx,ty,(foe?'⚠ 敵 ':'')+nm+(f.t<30?` ${Math.max(0,f.t).toFixed(1)}s`:''),foe?'#ff5d62':'#4fb3ff',11)}
+    ctx.restore()}
   for(const u of G.units)if(u.id==='lucio'&&!u.dead&&(u.team==='blue'||VIS.has(u))){const zo=(u.z||0)*ZP;ctx.strokeStyle=u.mode==='speed'?'rgba(95,212,154,.45)':'rgba(242,179,61,.45)';ctx.lineWidth=u.st.amp>0?4:1.5;ctx.beginPath();ctx.arc(u.x,u.y-zo,12*M,0,7);ctx.stroke()}
   // depth-sorted scene: buildings, walls, balconies, trees and heroes
   const items=[];for(const b of BOX_SORTED())items.push({k:boxKey(b),b});
@@ -1120,9 +1198,7 @@ function draw(dt){
     if(it.b){const hide=focus.some(u=>occludes(it.b,u));drawBox(it.b,hide?(it.b.kind==='trunk'?.25:.42):1)}
     else if(it.u)drawUnit(it.u);
     else if(it.pl){const pl=it.pl;const zt=3*ZP;ctx.fillStyle='#a9dcf2';ctx.fillRect(pl.x-pl.r,pl.y-zt,pl.r*2,zt);ctx.fillStyle='#e4f6ff';ctx.beginPath();ctx.ellipse(pl.x,pl.y-zt,pl.r,pl.r*.7,0,0,7);ctx.fill()}
-    else if(it.br){const s=barrierSeg(it.br);const b=it.br;const hz=(b.kind==='grasp'?2.2:3.2)*ZP;ctx.fillStyle=b.kind==='grasp'?'rgba(176,164,255,.35)':b.team==='blue'?'rgba(79,179,255,.3)':'rgba(255,93,98,.3)';ctx.strokeStyle=b.kind==='grasp'?'rgba(176,164,255,.9)':b.team==='blue'?'rgba(120,200,255,.95)':'rgba(255,120,120,.95)';ctx.lineWidth=2;
-      ctx.beginPath();ctx.moveTo(s[0],s[1]);ctx.lineTo(s[2],s[3]);ctx.lineTo(s[2],s[3]-hz);ctx.lineTo(s[0],s[1]-hz);ctx.closePath();ctx.fill();ctx.stroke();
-      if(b.kind!=='grasp'){ctx.fillStyle='#fff';ctx.font='700 10px "JetBrains Mono",monospace';ctx.textAlign='center';ctx.fillText(Math.ceil(b.hp),b.x,b.y-hz-4)}}
+    else if(it.br)drawBarrier(it.br);
   }
   // enemies we lost sight of: a fading marker where the team last saw them (what the allied bots are working from)
   for(const [e,k] of G.K.blue){if(e.dead||VIS.has(e)||e.summon)continue;const age=G.el-k.t;if(age>4)continue;ctx.globalAlpha=Math.max(0,.8-age*.15);
@@ -1133,9 +1209,21 @@ function draw(dt){
   for(const u of G.units){if(u.team!=='red'||u.dead||!VIS.has(u))continue;const zo=(u.z||0)*ZP;ctx.save();ctx.shadowColor='#ff2a36';ctx.shadowBlur=10;ctx.strokeStyle='rgba(255,80,90,.9)';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(u.x,u.y-zo-9,16,0,7);ctx.stroke();ctx.restore()}
   // allies are always outlined, even behind walls (like the original)
   for(const u of focus){const zo=(u.z||0)*ZP;ctx.strokeStyle=u===p?'rgba(242,179,61,.75)':'rgba(79,179,255,.6)';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(u.x,u.y-zo-9,13,0,7);ctx.stroke()}
+  // what they just used: the ability name pops up over the caster (bigger and gold-rimmed for an ult)
+  if(G.calls)for(const c of G.calls){const u=c.u;if(u.team==='red'&&!VIS.has(u))continue;const zo=(u.z||0)*ZP;const k=c.t/c.max;const rise=(1-k)*10;
+    if(c.ult){const R=18+(1-k)*26;ctx.strokeStyle=u.team==='red'?`rgba(255,70,80,${k})`:`rgba(79,179,255,${k})`;ctx.lineWidth=4;ctx.beginPath();ctx.arc(u.x,u.y-zo-9,R,0,7);ctx.stroke()}
+    ctx.globalAlpha=Math.min(1,k*3);tag(u.x,u.y-zo-50-rise,(c.ult?'★ ':'')+c.text,u.team==='red'?'#ff5d62':'#4fb3ff',c.ult?14:11,c.ult);ctx.globalAlpha=1}
   // projectiles and tracers glow
   ctx.save();ctx.globalCompositeOperation='lighter';
-  for(const q of G.projs){const zo=(q.z||0)*ZP;ctx.fillStyle=q.c;ctx.globalAlpha=.35;ctx.beginPath();ctx.arc(q.x,q.y-zo,q.r*2.4,0,7);ctx.fill();ctx.globalAlpha=1;ctx.beginPath();ctx.arc(q.x,q.y-zo,q.r,0,7);ctx.fill()}
+  for(const q of G.projs){const zo=(q.z||0)*ZP;
+    // a short streak behind it shows where it is flying
+    const sp=Math.hypot(q.vx,q.vy)||1;if(!q.stuck&&!q.landed){ctx.strokeStyle=q.c;ctx.globalAlpha=.45;ctx.lineWidth=q.r*1.2;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(q.x,q.y-zo);ctx.lineTo(q.x-q.vx/sp*q.r*(q.tag?6:3.5),q.y-zo-q.vy/sp*q.r*(q.tag?6:3.5));ctx.stroke();ctx.lineCap='butt'}
+    ctx.fillStyle=q.c;ctx.globalAlpha=.3;ctx.beginPath();ctx.arc(q.x,q.y-zo,q.r*(q.tag?2:1.6),0,7);ctx.fill();ctx.globalAlpha=1;ctx.beginPath();ctx.arc(q.x,q.y-zo,q.r,0,7);ctx.fill()}
+  ctx.globalCompositeOperation='source-over';
+  // enemy shots get a red rim; ability projectiles (grenades, bombs, dynamite...) carry their name
+  for(const q of G.projs){const zo=(q.z||0)*ZP;if(q.team==='red'){ctx.strokeStyle='rgba(255,60,70,.95)';ctx.lineWidth=q.tag?2.5:1.5;ctx.beginPath();ctx.arc(q.x,q.y-zo,q.r+2,0,7);ctx.stroke()}
+    if(q.tag&&(q.team==='blue'||VIS.has(q.src)||q.r>=5))tag(q.x,q.y-zo-q.r-8,(q.team==='red'?'⚠ ':'')+q.tag,q.team==='red'?'#ff5d62':'#4fb3ff',10)}
+  ctx.globalCompositeOperation='lighter';
   for(const f of G.fx){
     if(f.type==='line'){ctx.strokeStyle=f.c;ctx.globalAlpha=Math.min(1,f.t*10);ctx.lineWidth=f.w||1.5;ctx.beginPath();ctx.moveTo(f.ax,f.ay-(f.az||0)*ZP);ctx.lineTo(f.bx,f.by-(f.bz||0)*ZP);ctx.stroke();ctx.globalAlpha=1}
     if(f.type==='ring'){ctx.strokeStyle=f.c;ctx.lineWidth=3;ctx.globalAlpha=Math.min(1,f.t*2);ctx.beginPath();ctx.arc(f.x,f.y-(f.z||0)*ZP,Math.max(1,f.r),0,7);ctx.stroke();ctx.globalAlpha=1}
@@ -1148,8 +1236,29 @@ function draw(dt){
     ctx.strokeStyle='#f2b33d';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(p.aimX,p.aimY-az,6,0,7);ctx.stroke()}
   if(p&&p.path.length){ctx.strokeStyle='rgba(242,179,61,.6)';ctx.setLineDash([3,6]);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(p.x,p.y);p.path.forEach(q=>ctx.lineTo(q.x,q.y));ctx.stroke();ctx.setLineDash([])}
   drawHud(p);
+  if(G.banner){const bn=G.banner;ctx.setTransform(dpr,0,0,dpr,0,0);const a=Math.min(1,bn.t*2);ctx.globalAlpha=a;ctx.font='800 20px "Noto Sans JP",sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    const w=Math.min(VW-24,ctx.measureText(bn.text).width+40),y=78;ctx.fillStyle='rgba(8,12,18,.85)';ctx.fillRect(VW/2-w/2,y-18,w,36);ctx.fillStyle=bn.c;ctx.fillRect(VW/2-w/2,y-18,4,36);ctx.fillRect(VW/2+w/2-4,y-18,4,36);
+    ctx.fillStyle=bn.c==='#ff5d62'?'#ffd0d2':'#d6efff';ctx.fillText(bn.text,VW/2,y+1,w-16);ctx.globalAlpha=1;ctx.textBaseline='alphabetic'}
 }
 const AI_LABEL={fight:['交戦','#ffd9a0'],hide:['遮蔽','#9fe3ff'],escape:['退避','#ff9a9a'],regroup:['集合','#c9d6dd'],join:['合流','#c9d6dd'],evade:['回避','#e7b3ff'],move:['裏取り','#b8ff6b'],point:['ポイント','#f2d38a'],wait:['待機','#c9d6dd'],hold:['前守り','#9fe3ff'],side:['サイド','#b8ff6b'],dive:['奇襲','#b8ff6b']};
+const FIELD_NAME={disruptor:'ディスラプター',vortex:'ヴォルテクス',blizzard:'ブリザード',kekkai:'結界聖域',flux:'グラビティ・フラックス',rush:'狐走り'};
+// a readable name tag: dark pill, team-coloured rim and text
+function tag(x,y,text,col,size=11,gold=false){ctx.save();ctx.font=`800 ${size}px "Noto Sans JP",sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';
+  const w=ctx.measureText(text).width+size*1.1,h=size+7;ctx.fillStyle='rgba(8,12,18,.85)';ctx.beginPath();ctx.roundRect?ctx.roundRect(x-w/2,y-h/2,w,h,h/2):ctx.rect(x-w/2,y-h/2,w,h);ctx.fill();
+  ctx.strokeStyle=gold?'#f2b33d':col;ctx.lineWidth=gold?2.5:1.5;ctx.stroke();ctx.fillStyle=gold?'#ffe28a':col==='#ff5d62'?'#ffb3b6':'#bfe4ff';ctx.fillText(text,x,y+.5);ctx.restore()}
+// barriers: a glowing line on the floor where it stands, a see-through panel standing up from it with a hex grid,
+// and the owner's name with an HP bar (Sigma's floats forward: an arrow shows which way)
+function drawBarrier(b){const s=barrierSeg(b);const grasp=b.kind==='grasp';const hz=(grasp?2.2:3.2)*ZP;
+  const rgb=grasp?'176,164,255':b.team==='blue'?'79,179,255':'255,93,98';const k=grasp?1:Math.max(.25,b.hp/b.max);
+  ctx.save();ctx.shadowColor=`rgb(${rgb})`;ctx.shadowBlur=10;ctx.strokeStyle=`rgba(${rgb},.95)`;ctx.lineWidth=5;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(s[0],s[1]);ctx.lineTo(s[2],s[3]);ctx.stroke();ctx.restore();
+  const gr=ctx.createLinearGradient(0,Math.max(s[1],s[3]),0,Math.min(s[1],s[3])-hz);gr.addColorStop(0,`rgba(${rgb},${.42*k+.1})`);gr.addColorStop(1,`rgba(${rgb},${.12*k+.05})`);
+  ctx.fillStyle=gr;ctx.strokeStyle=`rgba(${rgb},.9)`;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(s[0],s[1]);ctx.lineTo(s[2],s[3]);ctx.lineTo(s[2],s[3]-hz);ctx.lineTo(s[0],s[1]-hz);ctx.closePath();ctx.fill();ctx.stroke();
+  ctx.save();ctx.clip();ctx.strokeStyle=`rgba(255,255,255,${.12+.15*k})`;ctx.lineWidth=1;for(let t=0;t<=1.001;t+=.125){const x=s[0]+(s[2]-s[0])*t,y=s[1]+(s[3]-s[1])*t;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x,y-hz);ctx.stroke()}
+  for(let h=hz/3;h<hz;h+=hz/3){ctx.beginPath();ctx.moveTo(s[0],s[1]-h);ctx.lineTo(s[2],s[3]-h);ctx.stroke()}ctx.restore();
+  if(grasp)return;const top=Math.min(s[1],s[3])-hz;
+  if(b.moving){const a=b.dir,cx=b.x+Math.cos(a)*18,cy=b.y+Math.sin(a)*18;ctx.fillStyle=`rgba(${rgb},.95)`;ctx.beginPath();ctx.moveTo(cx+Math.cos(a)*9,cy+Math.sin(a)*9);ctx.lineTo(cx+Math.cos(a+2.4)*7,cy+Math.sin(a+2.4)*7);ctx.lineTo(cx+Math.cos(a-2.4)*7,cy+Math.sin(a-2.4)*7);ctx.closePath();ctx.fill()}
+  const nm=(b.owner&&b.owner.name?b.owner.name+'の':'')+'バリア';tag(b.x,top-16,(b.team==='red'?'敵 ':'')+nm+' '+Math.ceil(b.hp),b.team==='red'?'#ff5d62':'#4fb3ff',10);
+  ctx.fillStyle='#000a';ctx.fillRect(b.x-20,top-6,40,4);ctx.fillStyle=`rgb(${rgb})`;ctx.fillRect(b.x-20,top-6,40*b.hp/b.max,4)}
 function drawUnit(u){
   const col=u.team==='blue'?'#4fb3ff':'#ff5d62';const fz=floorZ(u.x,u.y,u.l);const zo=(u.z||0)*ZP;
   ctx.fillStyle='rgba(0,0,0,.38)';ctx.beginPath();ctx.ellipse(u.x+2,u.y-fz*ZP+3,11,6,0,0,7);ctx.fill();
@@ -1353,7 +1462,7 @@ const AIP={ // rng: preferred fight distance (m), min: too close, peek: plays th
   tracer:{rng:8,min:0,peek:.4,tol:1.3,flank:1},bob:{rng:20,min:0,peek:0,tol:9},
   lucio:{rng:13,min:3,peek:.6,tol:1.1,sup:1},kiriko:{rng:18,min:7,peek:1,tol:.8,sup:1},ana:{rng:25,min:11,peek:1,tol:.8,sup:1},mizuki:{rng:15,min:5,peek:1,tol:.9,sup:1}};
 // feature switches per side (all on in play; the test harness turns them off for one side to measure them)
-const AIF={blue:{path:1,peek:1,cover:1,thr:1,area:1,sur:1,fov:1,cap:1,ch2:1,hold2:1,pinch:1},red:{path:1,peek:1,cover:1,thr:1,area:1,sur:1,fov:1,cap:1,ch2:1,hold2:1,pinch:1}};
+const AIF={blue:{path:1,peek:1,cover:1,thr:1,area:1,sur:1,fov:1,cap:1,ch2:1,hold2:1,pinch:1,rgch:1},red:{path:1,peek:1,cover:1,thr:1,area:1,sur:1,fov:1,cap:1,ch2:1,hold2:1,pinch:1,rgch:1}};
 const RANGE_M={ramattra:15,sigma:24,sojourn:44,ashe:46,tracer:14,mei:24,lucio:20,kiriko:30,ana:44,mizuki:24,bob:28};
 const THREAT_W={tank:1,damage:1.3,support:.7};
 const AOE_ULT={sigma:1,mei:1,ramattra:1,tracer:1,lucio:0,kiriko:0,ana:0,mizuki:0,sojourn:0,ashe:0};
@@ -1480,7 +1589,7 @@ function teamBrain(dt){
         if(best&&best!==T.rgK){T.rgK=best}}}
     else if(T.ts==='engage'||!T.retreat||G.el-T.retreat>=25)T.rgK='stage';
     T.rg=nodeOf(team,T.rgK||'stage');
-    const st=T.rg;const near=my.filter(u=>Math.hypot(u.x-st.px,u.y-st.py)<16*M).length;
+    let st=T.rg;let near=my.filter(u=>Math.hypot(u.x-st.px,u.y-st.py)<16*M).length;
     if(!T.ts)T.ts='stage';
     const ultM=my.filter(u=>u.ult>=u.d.ult).length,ultE=en.filter(u=>u.ult>=u.d.ult).length;
     const soon=G.units.filter(u=>u.team===team&&u.dead&&u.dead<4&&!u.summon).length;
@@ -1490,6 +1599,16 @@ function teamBrain(dt){
     const unlocking=G.cp.locked>0&&G.cp.locked<7;
     const tank=my.find(u=>u.role==='tank');
     const say=(c,t)=>{if(team==='blue'&&(G.call==='auto'||G.call==='push'))log(c,t)};
+    // lost a fight (someone died, numbers down): don't give the street back by running home. Regroup a few metres behind
+    // our own doorway onto the street and hold that choke, so they have to walk into us through it — unless we are too
+    // few to hold anything or they are already through / on top of it, then the normal fallback
+    const hold0=T.rgHold;T.rgHold=null;
+    if(AIF[team].rgch&&T.ts!=='engage'&&T.started&&G.cp.locked<=0&&(my.length>=3||my.length>=en.length&&my.length>=2)){const home=spawnCenter(team);const kf3=knownFoes(team,3).filter(e=>!e.summon);
+      const ok=q=>!kf3.some(e=>{const k=G.K[team].get(e);const dq=Math.hypot(k.x-q.bx,k.y-q.by);return dq<7*M||dq<16*M&&ownHalf(team,k.y)&&Math.hypot(k.x-home.px,k.y-home.py)<Math.hypot(q.bx-home.px,q.by-home.py)-M});
+      const E=T.enemyC;const cx=my.reduce((s,u)=>s+u.x,0)/my.length,cy=my.reduce((s,u)=>s+u.y,0)/my.length;
+      let best=null,bs=1e9;for(const q of CHOKES[foe]){if(!ok(q))continue;const sc=(E?Math.hypot(q.x-E.x,q.y-E.y):0)+Math.hypot(q.bx-cx,q.by-cy)*.5-(hold0===q?4*M:0);if(sc<bs){bs=sc;best=q}}
+      if(best){T.rgHold=best;T.rg={px:best.bx,py:best.by,floor:1};if(hold0!==best)say('tip','味方AI：下がるけど大通りは渡さない。自陣の出口を守って立て直す')}}
+    st=T.rg;near=my.filter(u=>Math.hypot(u.x-st.px,u.y-st.py)<16*M).length;
     // the whole team commits the moment the doors open
     if(G.cp.locked<=0&&!T.started){T.started=1;T.ts='engage';T.fk0=team==='blue'?G.bk:G.rk;T.fd0=team==='blue'?G.rk:G.bk;say('good','味方AI：開始。ポイントは囲まれるので、まず大通りを取る')}
     if(T.ts==='engage'){
@@ -1564,6 +1683,12 @@ function anchorFor(u,c){
     const d=Math.hypot(st.px-u.x,st.py-u.y);
     if(T.retreat&&d>16*M&&G.el-T.retreat<12){const q=bestSpot(u,u.x+(st.px-u.x)/d*8*M,u.y+(st.py-u.y)/d*8*M,4,(x,y)=>-thrAt(team,x,y)*20-Math.hypot(x-st.px,y-st.py)/M);if(q)return{x:q.x,y:q.y,r:1.5,kind:'stage'}}
     // everyone gets their own spot at the stage so nobody jostles for the same one
+    // holding our own exit: the tank plugs the doorway, the rest cover it from behind, out of the street's sightlines
+    const H=T.rgHold;if(H&&call!=='push'){const dx=H.bx-H.x,dy=H.by-H.y,dl=Math.hypot(dx,dy)||1;
+      if(u.role==='tank')return{x:H.bx,y:H.by,r:2,kind:'stage',hold:H};
+      const bx=H.bx+dx/dl*3*M,by=H.by+dy/dl*3*M;
+      const q=bestSpot(u,bx,by,4,(x,y)=>-thrAt(team,x,y)*25-Math.hypot(x-bx,y-by)/M*.6+(fastLos(x,y,H.x,H.y)?4:0)-(Math.hypot(x-H.x,y-H.y)<2.5*M?6:0)-G.units.filter(a=>a!==u&&a.team===team&&!a.dead&&Math.hypot(a.x-x,a.y-y)<1.8*M).length*3);
+      if(q)return{x:q.x,y:q.y,r:1.5,kind:'stage'}}
     const sg=team==='blue'?1:-1;const slot=G.units.filter(a=>a.team===team&&!a.summon).indexOf(u);const a=slot*1.2566+.4;const rr=slot?3.2:0;
     const o={tank:[2.5,0],damage:[0,0],support:[-2.5,0]}[u.role]||[0,0];return{x:st.px+(o[0]*sg+Math.cos(a)*rr)*M,y:st.py+(o[1]+Math.sin(a)*rr)*M,r:3,kind:'stage'}}
   const front=T.front||{x:pa.px,y:pa.py};
@@ -1820,7 +1945,7 @@ function step(dt){
   const lv=G.units.filter(u=>!u.dead);for(let i=0;i<lv.length;i++)for(let j=i+1;j<lv.length;j++){const a=lv[i],b=lv[j];if(a.team!==b.team||a.l!==b.l)continue;const d=D2(a,b);if(d<20){const px=d>0.01?(a.x-b.x)/d:rnd(-1,1),py=d>0.01?(a.y-b.y)/d:rnd(-1,1);const k=(20-d)*0.25;
     if(a.ctrl!=='player'){const nx=a.x+px*k,ny=a.y+py*k;if(canStand(a.l,cellOf(nx,ny),a.d.mob,a.team)){a.x=nx;a.y=ny}}if(b.ctrl!=='player'){const nx=b.x-px*k,ny=b.y-py*k;if(canStand(b.l,cellOf(nx,ny),b.d.mob,b.team)){b.x=nx;b.y=ny}}}}
   stepPerks();stepPacks(dt);updKnow(dt);learnTick(dt);updThreat(dt);teamBrain(dt);stepFields(dt);stepProjs(dt);stepObjective(dt);coach(dt);
-  for(const f of G.fx)f.t-=dt;G.fx=G.fx.filter(f=>f.t>0);G.hurt.forEach(h=>h.t-=dt);G.kf.forEach(k=>k.t-=dt);G.kf=G.kf.filter(k=>k.t>0);G.hurt=G.hurt.filter(h=>h.t>0);G.hitT-=dt;G.killT-=dt;
+  for(const f of G.fx)f.t-=dt;G.fx=G.fx.filter(f=>f.t>0);if(G.calls){for(const c of G.calls)c.t-=dt;G.calls=G.calls.filter(c=>c.t>0&&!c.u.dead)}if(G.banner&&(G.banner.t-=dt)<=0)G.banner=null;G.hurt.forEach(h=>h.t-=dt);G.kf.forEach(k=>k.t-=dt);G.kf=G.kf.filter(k=>k.t>0);G.hurt=G.hurt.filter(h=>h.t>0);G.hitT-=dt;G.killT-=dt;
   if(G.cp.pct.blue>=100)end('win');else if(G.cp.pct.red>=100)end('lose');
 }
 
@@ -1852,7 +1977,7 @@ function updUI(dt){
   uiT-=dt;if(uiT>0||!G)return;uiT=.1;const u=G.player;
   {const T=G.T.blue||{};const el=document.getElementById('tstate');const pw=T.pow?` ・ 戦力 ${T.pow[0].toFixed(1)} vs ${T.pow[1].toFixed(1)}`:'';
     const PH={main:'大通りを取る（ポイントはまだ踏まない）',cap:'エリアを取った：ポイントを確保',hold:'保持中：タンクは敵の出口を前守り、トレーサーはサイド',contest:'ポイント争奪：自陣側の入口と橋から囲み、トレーサーが挟む'};
-    const st=G.call!=='auto'?{group:'あなたについていく',push:'ポイントへ突撃',hold:'その場で待機',retreat:'後退中'}[G.call]:G.cp.locked>0?`スポーンで待機（開始まで ${Math.ceil(G.cp.locked)}秒）`:T.ts==='engage'?(PH[T.phase]||'交戦中')+(T.turn===false?'（スキル待ち・受け）':''):T.retreat&&G.el-T.retreat<25?'リグループ中（負けた戦闘から撤退）':'集合中：そろったら入る';
+    const st=G.call!=='auto'?{group:'あなたについていく',push:'ポイントへ突撃',hold:'その場で待機',retreat:'後退中'}[G.call]:G.cp.locked>0?`スポーンで待機（開始まで ${Math.ceil(G.cp.locked)}秒）`:T.ts==='engage'?(PH[T.phase]||'交戦中')+(T.turn===false?'（スキル待ち・受け）':''):T.rgHold?'リグループ中：自陣の出口（大通りへのチョーク）を守って立て直し':T.retreat&&G.el-T.retreat<25?'リグループ中（負けた戦闘から撤退）':'集合中：そろったら入る';
     const ar=T.area?' ・ エリア '+['main','left','pt'].map(a=>`${AREA_SRC[a].name} ${T.area[a][0]}:${T.area[a][1]}`).join(' / '):'';
     const f=T.focus&&!T.focus.dead?`フォーカス：${T.focus.name}`:'フォーカス：—';
     const html=`味方AI：${st}<small>${f}${pw}${T.style?' ・ '+(T.style==='brawl'?'ブロール':'ポーク'):''}${ar}</small>`;if(el.innerHTML!==html)el.innerHTML=html}
@@ -1902,6 +2027,8 @@ function togglePause(){if(!running)return;paused=!paused;const b=document.getEle
 document.getElementById('pause').onclick=togglePause;
 document.getElementById('zoom').onclick=e=>{zoomAll=!zoomAll;e.target.classList.toggle('on',zoomAll)};
 document.getElementById('aimb').onclick=e=>{autoAim=!autoAim;e.target.textContent='オートエイム '+(autoAim?'ON':'OFF');e.target.classList.toggle('on',autoAim)};
+{const gb=document.getElementById('groundv');const lab=()=>gb.textContent=groundMode==='sat'?'下地：衛星':'下地：元画像';lab();
+  gb.onclick=()=>{groundMode=groundMode==='sat'?'img':'sat';try{localStorage.setItem('owlab-ground',groundMode)}catch(e){}buildGround();lab()}}
 document.getElementById('walkv').onclick=e=>{showWalk=!showWalk;e.target.classList.toggle('on',showWalk)};
 document.getElementById('thrv').onclick=e=>{showThr=!showThr;e.target.classList.toggle('on',showThr)};
 document.getElementById('learnReset').onclick=()=>{learnReset();updLearnUI()};
