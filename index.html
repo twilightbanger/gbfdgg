@@ -1417,7 +1417,7 @@ function toWorld(e){const r=cv.getBoundingClientRect();const sx=e.clientX-r.left
 const BLUE_IDS=['ramattra','sojourn','tracer','lucio','kiriko'],RED_IDS=['sigma','tracer','ashe','mizuki','ana'];
 const RMB_MODE={lucio:'press',kiriko:'hold',tracer:'none',sojourn:'hold',ramattra:'press',sigma:'press',ashe:'state',mei:'hold',ana:'state',mizuki:'press'};
 
-const CAP_TIME=10, UNLOCK=12; // control point: the dashed square (CAP); ~10s to capture alone (x1.5 with 2, x2 with 3+).
+const CAP_TIME=10, UNLOCK=5; // control point: the dashed square (CAP); ~10s to capture alone (x1.5 with 2, x2 with 3+).
 // UNLOCK: setup time. Both teams wait in spawn behind closed doors; doors open and the point unlocks together.
 let paused=false,zoomAll=false,autoAim=false,showWalk=false,showThr=false,showAI=true,running=false,pickId='lucio';
 let feedDirty=true;
