@@ -1737,13 +1737,16 @@ function teamBrain(dt){
     if(T.adv&&!prev&&G.cp.owner!==team)say('good',T.clearT>=1.6?'味方AI：大通りを取った、ポイントを確保':'味方AI：人数有利、ポイントを確保');
     const ph=G.cp.locked>0?'wait':T.ts!=='engage'?'reset':(enOn>0||G.cp.capTeam===foe&&G.cp.capProg>0)?'contest':G.cp.owner===team?'hold':T.adv?'cap':'main';
     if(ph!==T.phase){if(ph==='hold'&&T.phase)say('tip','味方AI：確保した。タンクは敵のスポーン出口を前守り、トレーサーはサイド');T.phase=ph}
+    // we won the wave (two or more of theirs down, or all of them): push right up to the doorway they respawn out of
+    T.pushExit=G.cp.locked<=0&&T.ts==='engage'&&my.length>=3&&(en.length===0||my.length-en.length>=2)&&!urgent;
     // who stands on the point
     T.touch=new Set();
     if(G.cp.locked<=0&&T.ts==='engage'){
       const byDist=my.slice().sort((a,b)=>Math.hypot(a.x-N.point.px,a.y-N.point.py)-Math.hypot(b.x-N.point.px,b.y-N.point.py));
       // they hold a group-wipe ult (Flux, Blizzard...): don't stack the point with everyone — tank (plus one) only
       const wipe=AIF[team].tch&&!urgent&&en.some(e=>e.ult>=e.d.ult&&AOE_ULT[e.id]);
-      if(G.cp.owner!==team){if(T.adv||urgent){for(const u of my)if(u.role==='tank'||!wipe&&(u.id==='mei'||u.id==='lucio'||u.id==='mizuki'||u.id==='kiriko')||urgent)T.touch.add(u);if(wipe){const x=my.find(u=>u.id==='lucio'||u.id==='mei');if(x)T.touch.add(x)}if(!T.touch.size&&byDist[0])T.touch.add(byDist[0])}
+      if(G.cp.owner!==team&&T.pushExit){const sup=my.filter(u=>u.role==='support');(sup.length?sup:byDist.filter(u=>u.role!=='tank').slice(0,1)).forEach(u=>T.touch.add(u))}
+      else if(G.cp.owner!==team){if(T.adv||urgent){for(const u of my)if(u.role==='tank'||!wipe&&(u.id==='mei'||u.id==='lucio'||u.id==='mizuki'||u.id==='kiriko')||urgent)T.touch.add(u);if(wipe){const x=my.find(u=>u.id==='lucio'||u.id==='mei');if(x)T.touch.add(x)}if(!T.touch.size&&byDist[0])T.touch.add(byDist[0])}
         else if(G.cp.capTeam===foe&&enOn>0&&(my.length>en.length||G.cp.capProg>50||T.inPos)){const tk=my.find(u=>u.role==='tank');T.touch.add(tk||byDist[0])} // they are capping: the tank contests, the rest shoot from the street and the garden
       }
       else if((enOn>0||G.cp.capTeam===foe)&&(my.length>en.length||G.cp.capProg>50||T.inPos||!AIF[team].area)){for(const u of my)if(u.role==='tank'||u.id==='mei'||u.id==='lucio')T.touch.add(u);if(!wipe)byDist.slice(0,2).forEach(u=>T.touch.add(u))}
@@ -1840,9 +1843,9 @@ function anchorFor(u,c){
   // the other way round: they are a man down (or respawning) and we own the area — lock the exit they have to come
   // out of. The tank stands on it, the damage heroes take crossfire angles on the doorway from cover, so whoever
   // walks out is shot from two sides at once before the rest of them arrive
-  if(AIF[team].lock&&u.role==='damage'&&(T.phase==='hold'||T.phase==='main')&&T.ts==='engage'){const foe=team==='blue'?'red':'blue';
+  if(AIF[team].lock&&u.role==='damage'&&(T.phase==='hold'||T.phase==='main'||T.pushExit)&&T.ts==='engage'){const foe=team==='blue'?'red':'blue';
     const enA=G.units.filter(a=>a.team===foe&&!a.dead&&!a.summon).length,myA=G.units.filter(a=>a.team===team&&!a.dead&&!a.summon).length;
-    if(myA>enA){const ch=pickChoke(team);if(ch){const o=exitOut(ch,7);return{x:o.x,y:o.y,r:10,kind:'fight',lock:ch}}}}
+    if(myA>enA){const ch=pickChoke(team);if(ch){const o=exitOut(ch,T.pushExit?5:7);return{x:o.x,y:o.y,r:10,kind:'fight',lock:ch}}}}
   // ranged damage: search a wide area around the front for an off-angle with cover
   return{x:front.x,y:front.y,r:13,kind:'fight'};
 }
@@ -1965,6 +1968,7 @@ function mainAnchor(team){const T=G.T[team];const kf=knownFoes(team,2).filter(e=
     const ox=MAIN_C.x,oy=MAIN_C.y+(team==='blue'?-8:8)*M;const d=Math.hypot(ox-ex,oy-ey)||1;const k=Math.min(1,7*M/d);
     return{x:ex+(ox-ex)*k,y:ey+(oy-ey)*k,r:6,kind:'fight'}}
   const ch=pickChoke(team);
+  if(ch&&T.pushExit){const o=exitOut(ch,2);return{x:o.x,y:o.y,r:2,kind:'fight',hold:ch}} // right in front of their doorway
   // hold their doorway when they are (or were just) coming through it; while we don't know where they are, stand where
   // both the doorways and the point are one short rotation away: the street's garden edge on their half
   if(ch&&AIF[team].hold2){const E=T.enemyC;const fresh=E&&knownFoes(team,3).some(e=>!e.summon);
