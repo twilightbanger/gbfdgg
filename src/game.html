@@ -727,7 +727,7 @@ kiriko:{
     const a=t?Math.atan2(t.y-u.y,t.x-u.x):aimAng(u);for(let k=0;k<2;k++){proj(u,a+(k?.08:-.08),{speed:t?(PK(u,'urgent')&&hpFrac(t)<.5?33:24):18,heal:12,r:4,range:35,home:t,c:'#9fffd0'})}},
   rmb(u){if(u.fire2>0||u.reload2>0)return;if(u.ammo2<=0){u.reload2=u.d.reload2*rate(u);return}u.fire2=.5*rate(u);u.ammo2--;proj(u,aimAng(u),{speed:90,dmg:60,r:2,range:60,c:'#ffe6f0',onHit:()=>{if(!PK(u,'fortune'))return;const a0=aimAng(u);const f=alliesOf(u).filter(x=>x!==u&&D2(x,u)<35*M&&Math.abs(angDiff(Math.atan2(x.y-u.y,x.x-u.x),a0))<.8).sort((x,y)=>D2(x,u)-D2(y,u))[0];if(f)for(let j=0;j<2;j++)proj(u,Math.atan2(f.y-u.y,f.x-u.x)+(j?.08:-.08),{speed:24,heal:13,r:4,range:35,home:f,c:'#9fffd0'})}})},
   shift(u){const cands=alliesOf(u).filter(a=>a!==u&&D2(a,u)<35*M);const t=nearestTo(cands,u.aimX,u.aimY);if(!t)return false;
-    G.fx.push({type:'line',ax:u.x,ay:u.y,bx:t.x,by:t.y,c:'#ffd6f0',w:3,t:.3});u.x=t.x+rnd(-8,8);u.y=t.y+rnd(-8,8);u.l=t.l;u.st.inv=.25;u.path=[];if(PK(u,'readystep'))u.st.ready=3},
+    G.fx.push({type:'line',ax:u.x,ay:u.y,bx:t.x,by:t.y,c:'#ffd6f0',w:3,t:.3});{const i=nearestStand(t.x+rnd(-8,8),t.y+rnd(-8,8),t.l,false,6,u.team,true);if(i>=0){u.x=ccx(i);u.y=ccy(i)}else{u.x=t.x;u.y=t.y}}u.l=t.l;u.st.inv=.25;u.path=[];if(PK(u,'readystep'))u.st.ready=3},
   e(u){let x=u.aimX,y=u.aimY;const d=Math.hypot(x-u.x,y-u.y);if(d>20*M){x=u.x+(x-u.x)/d*20*M;y=u.y+(y-u.y)/d*20*M}
     for(const a of alliesOf(u)){if(Math.hypot(a.x-x,a.y-y)>4*M+R_HIT)continue;const deb=a.st.sleep>0||a.st.antiheal>0||a.st.stun>0||a.st.burn>0||a.st.hinder>0||a.st.frozen>0||a.st.chain>0;
       ['sleep','antiheal','stun','burn','hinder','frozen','chain','slow','vortex','bliz','lift'].forEach(k=>a.st[k]=0);a.st.inv=.5;if(PK(u,'foxtrot'))a.st.fox=2;heal(a,deb?110:80,u)}
@@ -1921,6 +1921,8 @@ function goTo(u,pos,risk){if(Math.hypot(pos.x-u.x,pos.y-u.y)<10&&pos.l===u.l){u.
   if(u.dest&&Math.hypot(u.dest.x-pos.x,u.dest.y-pos.y)<14&&u.path.length&&G.el-(u.pathT||0)<1.2)return;
   u.pathT=G.el;if(!pathTo(u,pos.x,pos.y,pos.l,risk)){u.path=[];u.ai.pos=null;u.ai.mt=Math.min(u.ai.mt||0,G.el+.15)}}
 function aiAct(u,dt){
+  // safety net: something (a teleport, a knockback) left me inside a wall — step back onto the nearest floor
+  {const ci=cellOf(u.x,u.y);if(!canStand(u.l,ci,true,u.team)&&!(u.st.air>0)&&!STAIR[ci]){u.offT=(u.offT||0)+dt;if(u.offT>.5){const i=nearestStand(u.x,u.y,u.l,false,8,u.team,true);if(i>=0){u.x=ccx(i);u.y=ccy(i);u.path=[]}u.offT=0}}else u.offT=0}
   if(stunned(u))return;const k=KIT[u.id];
   if(u.ai.aim&&u.aimX===u.ai.ax&&u.aimY===u.ai.ay)aimTrack(u,dt);
   {const t0=u.ai.c&&u.ai.c.tgt;if(t0&&D2(t0,u)<2.4*M&&(totalHp(t0)<=40||u.reload>0||u.role==='tank')){u.aimX=t0.x;u.aimY=t0.y;melee(u)}}
