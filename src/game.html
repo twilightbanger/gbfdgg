@@ -28,6 +28,16 @@ h1{font-family:var(--disp);font-size:22px;margin:0;letter-spacing:.02em}
 @media (max-width:1050px){.main{grid-template-columns:1fr}}
 .stagecol{display:flex;flex-direction:column;gap:8px;min-width:0}
 .stage{background:#070c0f;border:1px solid var(--line);border-radius:8px;overflow:hidden;position:relative}
+.specbar{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:6px 0}
+.specbar[hidden]{display:none}
+.specbar>*{pointer-events:auto}
+.specbar .sp{width:30px;height:30px;border-radius:50%;padding:0;border:2px solid #4fb3ff;background:#0d1a24 center/cover;cursor:pointer;position:relative}
+.specbar .sp.red{border-color:#ff5d62;background-color:#240d10}
+.specbar .sp.on{box-shadow:0 0 0 3px #f2b33d}
+.specbar .sp.dead{filter:grayscale(1) brightness(.45)}
+.specbar .sb{font:700 11px 'Noto Sans JP',sans-serif;padding:5px 8px;border-radius:6px;border:1px solid #2a3a44;background:rgba(10,16,22,.85);color:#dbe6ea;cursor:pointer}
+.specbar .sb.on{border-color:#f2b33d;color:#ffe28a}
+.specbar .gap{width:6px}
 canvas#cv{display:block;width:100%;height:min(76vh,820px);touch-action:none;cursor:crosshair}
 .overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#050a0de6;flex-direction:column;gap:12px;text-align:center;padding:20px;overflow:auto}
 .overlay[hidden]{display:none}
@@ -126,8 +136,10 @@ button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
           <div class="pick" id="pick"></div>
           <div class="pick" id="diff"><button data-d="easy">やさしい</button><button data-d="normal" class="on">ふつう</button><button data-d="hard">むずかしい</button><button data-d="pro">プロ</button></div>
           <button class="b go" id="start">スタート</button>
+          <button class="b go" id="spectate" title="10人全員AIの試合を観戦する">観戦（全員AI）</button>
         </div>
       </div>
+      <div class="specbar" id="specbar" hidden></div>
       <div class="perkbar" id="perkbar" hidden></div>
       <div class="abar">
         <div class="me"><img id="meImg" alt=""><div><div class="nm" id="meName"></div><div class="sub" id="meSub"></div></div></div>
@@ -164,6 +176,7 @@ button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
         <br><b style="color:var(--text)">生存</b>：被弾ペースから「あと何秒で死ぬか」を見て、危なくなる前に遮蔽へ下がる。死にそうな時は逃げスキルを使う（トレーサーのリコール、キリコの瞬歩・鈴、ソジョーンのスライド、アナのスリープ、メイの氷など）。1人落ちて不利なら自陣の出口の外で守って復活を待ち（出口を抑えられて出られなくなるのを防ぐ）、逆に人数有利なら敵の出口を十字砲火で抑える。トレーサーは1対1で勝てる時だけサイドで戦う。敵が範囲ウルトを持っている時はポイントに大勢で乗らない。グラビティ・フラックスで浮いている間も射撃と移動以外のスキルは使える。
         <br><b style="color:var(--text)">ウルト</b>：溜まった人から使うが、味方同士は約2秒ずらして同時に被らせない（キリコの狐走りがあればそれを先に）。敵がサウンドバリアや結界で受けたら追加は止めて待つ。ルシオのビートは先に使わず、味方のウルトで入って敵がスキルやウルトを吐いた後の上乗せか、敵ウルトへのカウンター・味方が倒れそうな時に使う。
         <br><b style="color:var(--text)">効果音</b>：敵を倒すたびに音が鳴り、同じ戦闘の連続キルで音程が一段ずつ上がる（自分のキルは明るく大きく）。味方がやられると低い音が鳴り、続けてやられるほど下がる。「音」ボタンでON/OFF。
+        <br><b style="color:var(--text)">観戦</b>：スタート画面の「観戦（全員AI）」で10人全員AIの試合を見られる。両チームとも全員見える。画面下の顔アイコン（1〜0キー / Tab）で追う人を選び、「自動」で戦闘が起きている所を自動で追う。「全体」でマップ全体、x1 / x2 / x4 で速度、Spaceで一時停止。
       </div>
     </div>
   </div>
@@ -1193,7 +1206,7 @@ function drawBox(b,alpha){
 const unitKey=u=>u.y+(u.z||0)*1.6*M;
 const boxKey=b=>(b.y+b.h)*M+(b.kind==='rail'?.5:b.kind==='trunk'?.2:0)+(b.z0>=3?.1:0);
 let VIS=new Set(),visT=0;
-function updVis(dt){visT-=dt;if(visT>0)return;visT=.1;VIS=new Set();for(const u of G.units){if(u.dead)continue;if(u.team==='blue'||u.summon&&u.team==='blue'){VIS.add(u);continue}
+function updVis(dt){visT-=dt;if(visT>0)return;visT=.1;VIS=new Set();if(SPEC){for(const u of G.units)if(!u.dead)VIS.add(u);return}for(const u of G.units){if(u.dead)continue;if(u.team==='blue'||u.summon&&u.team==='blue'){VIS.add(u);continue}
   if(G.units.some(b=>b.team==='blue'&&!b.dead&&D2(b,u)<50*M&&sees(b,u)))VIS.add(u)}}
 function occludes(b,u){if(!u||u.dead)return false;const x0=b.x*M,x1=(b.x+b.w)*M,y1=(b.y+b.h)*M;if(u.x<x0-6||u.x>x1+6)return false;const uy=u.y-(u.z||0)*ZP;return uy<y1&&uy>b.y*M-b.z1*ZP-10&&unitKey(u)<boxKey(b)}
 // the blue side's threat map: floor that known enemies can shoot (what the bots route around)
@@ -1226,7 +1239,7 @@ function drawCapZone(){const own=G.cp.owner;const col=own==='blue'?'79,179,255':
 function draw(dt){
   if(!G)return;const p=G.player;updVis(dt||0);
   if(zoomAll){scale=Math.min(VW/W,VH/(H+8*ZP));camX=W/2;camY=H/2-2*ZP}
-  else{scale=VH/(30/zoom*M);const spec=p&&!p.dead?p:(G.units.find(a=>a.team==='blue'&&!a.dead&&!a.summon)||p);const tx=spec?spec.x:W/2,ty=spec?spec.y-(spec.z||0)*ZP:H/2;camX+=(tx-camX)*.18;camY+=(ty-camY)*.18}
+  else{scale=VH/(30/zoom*M);if(SPEC)specDirect(dt||0);const spec=p&&!p.dead?p:(G.units.find(a=>a.team==='blue'&&!a.dead&&!a.summon)||p);const tx=spec?spec.x:W/2,ty=spec?spec.y-(spec.z||0)*ZP:H/2;camX+=(tx-camX)*.18;camY+=(ty-camY)*.18}
   ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle='#0b1210';ctx.fillRect(0,0,VW,VH);
   ctx.setTransform(dpr*scale,0,0,dpr*scale,dpr*(VW/2-camX*scale),dpr*(VH/2-camY*scale));
   ctx.drawImage(groundCv,0,0,W,H);
@@ -1295,7 +1308,7 @@ function draw(dt){
   for(const l of LANTERNS){const y=l.y-l.z*ZP;const gr=ctx.createRadialGradient(l.x,y,0,l.x,y,40);gr.addColorStop(0,'rgba(255,170,90,.22)');gr.addColorStop(1,'rgba(255,120,60,0)');ctx.fillStyle=gr;ctx.fillRect(l.x-40,y-40,80,80);ctx.fillStyle='rgba(255,90,60,.9)';ctx.fillRect(l.x-2,y-3,4,6)}
   ctx.restore();
   for(const f of G.fx)if(f.type==='num'){ctx.fillStyle=f.c;ctx.globalAlpha=Math.min(1,f.t*2);ctx.font='700 11px "JetBrains Mono",monospace';ctx.textAlign='center';ctx.fillText(f.v,f.x,f.y-(f.z||0)*ZP-(0.6-f.t)*20);ctx.globalAlpha=1}
-  if(p&&!p.dead&&!zoomAll){const zo=((p.z||0)+1.2)*ZP,az=(mouse.wz||0)*ZP;ctx.strokeStyle='rgba(242,179,61,.45)';ctx.lineWidth=1;ctx.setLineDash([4,6]);ctx.beginPath();ctx.moveTo(p.x,p.y-zo);ctx.lineTo(p.aimX,p.aimY-az);ctx.stroke();ctx.setLineDash([]);
+  if(p&&!p.dead&&!zoomAll&&!SPEC){const zo=((p.z||0)+1.2)*ZP,az=(mouse.wz||0)*ZP;ctx.strokeStyle='rgba(242,179,61,.45)';ctx.lineWidth=1;ctx.setLineDash([4,6]);ctx.beginPath();ctx.moveTo(p.x,p.y-zo);ctx.lineTo(p.aimX,p.aimY-az);ctx.stroke();ctx.setLineDash([]);
     ctx.strokeStyle='#f2b33d';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(p.aimX,p.aimY-az,6,0,7);ctx.stroke()}
   if(p&&p.path.length){ctx.strokeStyle='rgba(242,179,61,.6)';ctx.setLineDash([3,6]);ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(p.x,p.y);p.path.forEach(q=>ctx.lineTo(q.x,q.y));ctx.stroke();ctx.setLineDash([])}
   drawHud(p);
@@ -1366,7 +1379,7 @@ function drawHud(p){
   ctx.setTransform(dpr,0,0,dpr,0,0);
   // warm vignette
   const vg=ctx.createRadialGradient(VW/2,VH/2,Math.min(VW,VH)*.35,VW/2,VH/2,Math.max(VW,VH)*.75);vg.addColorStop(0,'rgba(0,0,0,0)');vg.addColorStop(1,'rgba(10,5,0,.45)');ctx.fillStyle=vg;ctx.fillRect(0,0,VW,VH);
-  if(p&&!p.dead&&!zoomAll){const sx=(p.aimX-camX)*scale+VW/2,sy=(p.aimY-(mouse.wz||0)*ZP-camY)*scale+VH/2;
+  if(p&&!p.dead&&!zoomAll&&!SPEC){const sx=(p.aimX-camX)*scale+VW/2,sy=(p.aimY-(mouse.wz||0)*ZP-camY)*scale+VH/2;
     if(G.hitT>0||G.killT>0){ctx.strokeStyle=G.killT>0?'#ff5d62':'#fff';ctx.lineWidth=2.5;for(const [a,b] of [[1,1],[1,-1],[-1,1],[-1,-1]]){ctx.beginPath();ctx.moveTo(sx+a*5,sy+b*5);ctx.lineTo(sx+a*11,sy+b*11);ctx.stroke()}}
     for(const h of G.hurt){ctx.strokeStyle=`rgba(255,70,70,${Math.min(1,h.t*1.6)})`;ctx.lineWidth=6;ctx.beginPath();ctx.arc(VW/2,VH/2,Math.min(VW,VH)*.32,h.a-.25,h.a+.25);ctx.stroke()}
     const hpf=hpFrac(p);if(hpf<.35){const g2=ctx.createRadialGradient(VW/2,VH/2,Math.min(VW,VH)*.3,VW/2,VH/2,Math.max(VW,VH)*.7);g2.addColorStop(0,'rgba(255,0,0,0)');g2.addColorStop(1,`rgba(255,30,30,${.35*(1-hpf/.35)+.1})`);ctx.fillStyle=g2;ctx.fillRect(0,0,VW,VH)}}
@@ -2000,7 +2013,34 @@ function playerAct(u,dt){
   if(rm==='state'){u.st.scoped=rmbDown}
   if(u.id==='ramattra'&&u.st.nemesis>0)u.st.block=rmbDown;
 }
-function playerPress(key){const u=G&&G.player;if(!u||u.dead||!running||paused)return;
+// ---------------- spectator (all ten are bots) ----------------
+// The camera director follows where the fight is (the hero with the most enemies close by, switching only when the
+// action clearly moves, never faster than every ~2.5 s); click a portrait (or 1-0 / Tab) to lock onto one hero,
+// 自動 to hand the camera back, 全体 for the whole map, and x1/x2/x4 for speed. Both teams are fully visible.
+let SPEC=false,SPEC_SPD=1,specAuto=true,specT=0;
+function startSpec(){audio();init();SPEC=true;SPEC_SPD=1;specAuto=true;specT=0;for(const u of G.units)u.ctrl='ai';
+  document.getElementById('ov').hidden=true;running=true;paused=false;last=performance.now();resize();
+  const ab=document.getElementById('abil');if(ab)ab.hidden=true;buildSpecBar();log('tip','観戦モード：10人全員AI。顔アイコンで追う人を選択、「自動」で戦闘を自動で追う。1〜0 / Tab で切替、Space で一時停止。')}
+function endSpec(){SPEC=false;SPEC_SPD=1;const sb=document.getElementById('specbar');if(sb)sb.hidden=true;const ab=document.getElementById('abil');if(ab)ab.hidden=false}
+function specFollow(u){if(!u)return;G.player=u;specAuto=false;buildAbilityBar();updSpecBar()}
+function specDirect(dt){if(!specAuto){if(G.player&&G.player.dead){specAuto=true;specT=0}else return}
+  specT-=dt;if(specT>0&&G.player&&!G.player.dead)return;specT=2.5;
+  let best=null,bs=-1;for(const u of G.units){if(u.dead||u.summon)continue;const n=G.units.filter(e=>e.team!==u.team&&!e.dead&&!e.summon&&D2(e,u)<22*M).length+(u.st.nano>0||u.st.annihil>0||u.st.overclock>0?2:0)+(G.player===u?.6:0);if(n>bs){bs=n;best=u}}
+  if(best&&best!==G.player){G.player=best;buildAbilityBar()}updSpecBar()}
+function buildSpecBar(){const sb=document.getElementById('specbar');sb.hidden=false;sb.innerHTML='';
+  G.units.filter(u=>!u.summon).forEach((u,i)=>{const b=document.createElement('button');b.className='sp '+u.team;b.style.backgroundImage=`url(${DATA.portraits[u.id]})`;b.title=`${i<9?i+1:0}: ${u.team==='blue'?'青':'赤'} ${u.name}`;b.onclick=()=>specFollow(u);b.dataset.i=i;sb.appendChild(b);if(i===4){const g=document.createElement('span');g.className='gap';sb.appendChild(g)}});
+  const add=(t,f,id)=>{const b=document.createElement('button');b.className='sb';b.textContent=t;b.onclick=f;if(id)b.id=id;sb.appendChild(b)};
+  add('自動',()=>{specAuto=true;specT=0;updSpecBar()},'spAuto');add('全体',()=>{zoomAll=!zoomAll;document.getElementById('zoom').classList.toggle('on',zoomAll);updSpecBar()},'spAll');
+  for(const v of [1,2,4])add('x'+v,()=>{SPEC_SPD=v;updSpecBar()},'spX'+v);updSpecBar()}
+function updSpecBar(){const sb=document.getElementById('specbar');if(!sb||sb.hidden||!G)return;const us=G.units.filter(u=>!u.summon);
+  sb.querySelectorAll('.sp').forEach(b=>{const u=us[+b.dataset.i];b.classList.toggle('on',u===G.player);b.classList.toggle('dead',!!u.dead)});
+  const t=(id,on)=>{const e=document.getElementById(id);if(e)e.classList.toggle('on',on)};t('spAuto',specAuto);t('spAll',zoomAll);for(const v of [1,2,4])t('spX'+v,SPEC_SPD===v)}
+function specKey(k,e){const us=G.units.filter(u=>!u.summon);
+  if(/^[0-9]$/.test(k)){const i=k==='0'?9:+k-1;if(us[i])specFollow(us[i]);return}
+  if(k==='tab'){e.preventDefault();const al=us.filter(u=>!u.dead);const i=al.indexOf(G.player);specFollow(al[(i+1)%al.length]);return}
+  if(k===' '||k==='p'||k==='escape'){togglePause();return}if(k==='a'){specAuto=true;specT=0;updSpecBar();return}
+  if(k==='+'||k==='='){zoom=Math.min(2.6,zoom*1.15);return}if(k==='-'){zoom=Math.max(.5,zoom/1.15);return}}
+function playerPress(key){const u=G&&G.player;if(SPEC||!u||u.dead||!running||paused)return;
   if(key==='rmb'){const rm=RMB_MODE[u.id];if(rm==='press'){if(u.id==='ramattra'&&u.st.nemesis>0)return;if(u.id==='sigma'||u.id==='mizuki')KIT[u.id].rmb(u);else use(u,'rmb')}return}
   if(key==='r'){reloadNow(u);return}
   if(key==='shift'&&u.id==='lucio'){KIT.lucio.shift(u);return}
@@ -2123,7 +2163,7 @@ cv.addEventListener('contextmenu',e=>e.preventDefault());
 cv.addEventListener('wheel',e=>{e.preventDefault();zoom=Math.max(.5,Math.min(2.6,zoom*(e.deltaY<0?1.12:1/1.12)))},{passive:false});
 cv.addEventListener('pointermove',e=>{if(!G)return;const w=toWorld(e);mouse.wx=w.x;mouse.wy=w.y;mouse.wz=w.z;mouse.sx=e.clientX;mouse.sy=e.clientY;if(e.pointerType==='mouse')mouse.in=true});
 cv.addEventListener('pointerleave',()=>{mouse.in=false;lmbDown=false});
-cv.addEventListener('pointerdown',e=>{if(!G||!running)return;const w=toWorld(e);mouse.wx=w.x;mouse.wy=w.y;mouse.wz=w.z;
+cv.addEventListener('pointerdown',e=>{if(!G||!running||SPEC)return;const w=toWorld(e);mouse.wx=w.x;mouse.wy=w.y;mouse.wz=w.z;
   if(e.pointerType!=='mouse'){ // touch: tap to move there
     if(!autoAim){autoAim=true;document.getElementById('aimb').textContent='オートエイム ON';document.getElementById('aimb').classList.add('on')}
     const u=G.player;if(u&&!u.dead)pathTo(u,w.x,w.y);return}
@@ -2131,6 +2171,7 @@ cv.addEventListener('pointerdown',e=>{if(!G||!running)return;const w=toWorld(e);
 cv.addEventListener('pointerup',e=>{if(e.button===0)lmbDown=false;if(e.button===2){rmbDown=false;if(G&&G.player&&G.player.id==='sigma')KIT.sigma.rmbUp(G.player)}});
 addEventListener('keydown',e=>{if(!G)return;const k=e.key.toLowerCase();
   if(running&&[' ','tab','arrowup','arrowdown','arrowleft','arrowright','shift','q','e'].includes(k)&&!(e.target&&e.target.closest&&e.target.closest('input,textarea')))e.preventDefault();
+  if(SPEC&&running){specKey(k,e);return}
   if(k===' '){if(G.player&&running&&!paused)jump(G.player);return}
   if(['w','a','s','d'].includes(k)){keys[k]=true;return}
   if(k==='shift'){playerPress('shift');return}
@@ -2173,12 +2214,13 @@ function buildTeams(){const el=document.getElementById('teams');el.innerHTML='';
 buildTeams();
 document.querySelectorAll('#diff button').forEach(b=>b.onclick=()=>{const v={easy:[2,.3],normal:[1.3,.2],hard:[.9,.16],pro:[.6,.12]}[b.dataset.d];PROF.red.err=v[0];PROF.red.react=v[1];document.querySelectorAll('#diff button').forEach(x=>x.classList.toggle('on',x===b))});
 addEventListener('pagehide',()=>learnSave());
-document.getElementById('restart').onclick=()=>{learnSave();running=false;paused=false;const ov=document.getElementById('ov');ov.hidden=false;document.getElementById('ovT').textContent='操作するヒーローを選ぶ';document.getElementById('ovS').innerHTML='';document.getElementById('ovP').textContent='ヒーローと難易度を選んでスタート。';document.getElementById('start').textContent='スタート'};
-document.getElementById('start').onclick=()=>{audio();document.getElementById('ovS').innerHTML='';init();document.getElementById('ov').hidden=true;running=true;paused=false;last=performance.now();resize()};
+document.getElementById('restart').onclick=()=>{endSpec();learnSave();running=false;paused=false;const ov=document.getElementById('ov');ov.hidden=false;document.getElementById('ovT').textContent='操作するヒーローを選ぶ';document.getElementById('ovS').innerHTML='';document.getElementById('ovP').textContent='ヒーローと難易度を選んでスタート。';document.getElementById('start').textContent='スタート'};
+document.getElementById('spectate').onclick=()=>{document.getElementById('ovS').innerHTML='';startSpec()};
+document.getElementById('start').onclick=()=>{audio();endSpec();document.getElementById('ovS').innerHTML='';init();document.getElementById('ov').hidden=true;running=true;paused=false;last=performance.now();resize()};
 
 let last=performance.now();
 function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;
-  if(G&&running&&!paused){let t=dt;while(t>0){const s=Math.min(t,1/60);step(s);t-=s;if(G.over)break}}
+  if(G&&running&&!paused){let t=dt*(SPEC?SPEC_SPD:1);while(t>0){const s=Math.min(t,1/60);step(s);t-=s;if(G.over)break}}
   draw(dt);updUI(dt);requestAnimationFrame(frame)}
 addEventListener('resize',resize);
 function boot(){buildNav();buildChokes();buildGround();resize();init();requestAnimationFrame(frame)}
