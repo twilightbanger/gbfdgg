@@ -520,7 +520,7 @@ function stepProjs(dt){
           if(p.heal?!ally:ally)continue;if(p.hitSet&&p.hitSet.has(u))continue;
           if(segDist(u.x,u.y,p.x,p.y,nx,ny)<R_HIT+p.r&&Math.abs(nz-((u.z||0)+1))<1.25){
             if(p.heal){heal(u,p.heal,p.src)}else if(p.sticky){p.stuck=u;p.stickT=p.fuse;p.vx=p.vy=0;dmg(u,5,p.src);break}
-            else{const d=dmg(u,p.dmg||0,p.src,p.dmgOpt||{});p.onHit&&p.onHit(u,d)}
+            else{const d=dmg(u,p.dmg||0,p.src,p.dmgOpt||{});p.hit=1;p.onHit&&p.onHit(u,d)}
             if(p.pierce){(p.hitSet=p.hitSet||new Set()).add(u);continue}
             end=true;break}}
       }
@@ -610,19 +610,19 @@ const DEF={
  kiriko:{id:'kiriko',name:'キリコ',short:'キリコ',role:'support',hp:225,mob:true,ammo:10,ammo2:15,reload:.9,reload2:1.3,ult:2725,
   keys:{lmb:'回復の御札',rmb:'クナイ',shift:'瞬歩',e:'鈴の加護',q:'狐走り'},cds:{shift:7,e:14}},
  tracer:{id:'tracer',name:'トレーサー',short:'トレ',role:'damage',hp:175,mob:true,ammo:40,reload:1,ult:1375,
-  keys:{lmb:'パルス・ピストル',rmb:'—',shift:'ブリンク',e:'リコール',q:'パルス・ボム'},cds:{e:13}},
+  keys:{lmb:'パルス・ピストル',rmb:'—',shift:'ブリンク',e:'リコール',q:'パルス・ボム'},cds:{e:12}},
  sojourn:{id:'sojourn',name:'ソジョーン',short:'ソジョ',role:'damage',hp:225,mob:true,ammo:45,reload:1.2,ult:2300,
-  keys:{lmb:'レールガン',rmb:'チャージショット',shift:'パワースライド',e:'ディスラプター',q:'オーバークロック'},cds:{shift:6,e:15}},
+  keys:{lmb:'レールガン',rmb:'チャージショット',shift:'パワースライド',e:'ディスラプター',q:'オーバークロック'},cds:{shift:7,e:15}},
  ramattra:{id:'ramattra',name:'ラマットラ',short:'ラマ',role:'tank',hp:425,armor:100,mob:false,ammo:100,reload:1,ult:2300,
-  keys:{lmb:'ヴォイド・アクセラレーター',rmb:'ヴォイド・バリア',shift:'ネメシス',e:'ヴォルテクス',q:'アナイアレーション'},cds:{rmb:13,shift:8,e:11}},
+  keys:{lmb:'ヴォイド・アクセラレーター',rmb:'ヴォイド・バリア',shift:'ネメシス',e:'ヴォルテクス',q:'アナイアレーション'},cds:{rmb:12,shift:8,e:11}},
  sigma:{id:'sigma',name:'シグマ',short:'シグマ',role:'tank',hp:350,shield:250,mob:false,ult:2300,
   keys:{lmb:'ハイパースフィア',rmb:'実験用バリア',shift:'キネティック・グラスプ',e:'アクリーション',q:'グラビティ・フラックス'},cds:{shift:12,e:10}},
- ashe:{id:'ashe',name:'アッシュ',short:'アッシュ',role:'damage',hp:250,mob:true,ammo:15,ult:2450,
+ ashe:{id:'ashe',name:'アッシュ',short:'アッシュ',role:'damage',hp:250,mob:true,ammo:12,ult:2450,
   keys:{lmb:'ヴァイパー',rmb:'スコープ',shift:'コーチガン',e:'ダイナマイト',q:'B.O.B.'},cds:{shift:10,e:12}},
  mei:{id:'mei',name:'メイ',short:'メイ',role:'damage',hp:300,mob:false,ult:1925,
   keys:{lmb:'エンドサーミック・ブラスター',rmb:'つらら',shift:'クライオフリーズ',e:'アイスウォール',q:'ブリザード'},cds:{shift:12,e:12}},
  ana:{id:'ana',name:'アナ',short:'アナ',role:'support',hp:250,mob:false,ammo:15,reload:1.5,ult:2300,
-  keys:{lmb:'バイオティック・ライフル',rmb:'スコープ',shift:'スリープ・ダーツ',e:'バイオティック・グレネード',q:'ナノ・ブースト'},cds:{shift:14,e:14}},
+  keys:{lmb:'バイオティック・ライフル',rmb:'スコープ',shift:'スリープ・ダーツ',e:'バイオティック・グレネード',q:'ナノ・ブースト'},cds:{shift:14,e:12}},
  mizuki:{id:'mizuki',name:'ミズキ',short:'ミズキ',role:'support',hp:250,mob:true,ammo:15,reload:1.5,ult:3100,
   keys:{lmb:'霊刃',rmb:'癒しの傘',shift:'形代返し',e:'縛鎖',q:'結界聖域'},cds:{shift:12,e:12}},
  bob:{id:'bob',name:'B.O.B.',short:'BOB',role:'tank',hp:1150,mob:false,ult:1e9,keys:{}},
@@ -690,21 +690,23 @@ const KIT={
 // ---------------- LÚCIO ----------------
 lucio:{
   lmb(u){if(u.fire1>0||u.reload>0)return;if(u.ammo<4){reloadNow(u);return}u.fire1=.935*rate(u);u.ammo-=4;const a=aimAng(u);
-    for(let k=0;k<4;k++){const p=proj(u,a,{speed:50,dmg:20,r:3,range:40,c:'#b8ff6b'});p.x-=Math.cos(a)*k*9;p.y-=Math.sin(a)*k*9}},
+    for(let k=0;k<4;k++){const p=proj(u,a,{speed:50,dmg:22,r:3,range:40,c:'#b8ff6b'});p.x-=Math.cos(a)*k*9;p.y-=Math.sin(a)*k*9}},
   rmb(u){const a=aimAng(u);let hit=0;const rd=PK(u,'rider')&&u.riderReady;u.riderReady=false;for(const e of enemiesOf(u)){const d=D2(u,e);if(d>7*M+R_HIT)continue;const b=Math.atan2(e.y-u.y,e.x-u.x);if(Math.abs(angDiff(b,a))>0.9)continue;if(!sees(u,e))continue;dmg(e,rd?67.5:45,u);knock(e,b,rd?21.25:17,.45);hit++}
     G.fx.push({type:'cone',x:u.x,y:u.y,a,r:7*M,c:'#b8ff6b',t:.25})},
   shift(u){u.mode=u.mode==='speed'?'heal':'speed';return 'nocd'},
   e(u){u.st.amp=3},
   q(u){u.st.dropping=.6;if(PK(u,'beatdrop'))u.st.amp=6.6},
   tick(u,dt){
-    if(u.st.dropping>0){u.st.dropping-=dt;if(u.st.dropping<=0){alliesOf(u).forEach(a=>{if(D2(a,u)<30*M&&mapLos(u.x,u.y,u.l,a.x,a.y,a.l))addOver(a,750,125)});G.fx.push({type:'ring',x:u.x,y:u.y,r:30*M,c:'#b8ff6b',t:.8})}}
+    if(u.st.dropping>0){u.st.dropping-=dt;if(u.st.dropping<=0){alliesOf(u).forEach(a=>{if(D2(a,u)<30*M&&mapLos(u.x,u.y,u.l,a.x,a.y,a.l))addOver(a,625,125)});G.fx.push({type:'ring',x:u.x,y:u.y,r:30*M,c:'#b8ff6b',t:.8})}}
     if(LY[u.l][cellOf(u.x,u.y)]===2){u.st.wallride=.25;u.riderReady=true}
-    if(u.mode==='heal'){const amp=u.st.amp>0;for(const a of alliesOf(u)){if(D2(a,u)>(amp&&PK(u,'noise')?20:12)*M||!mapLos(u.x,u.y,u.l,a.x,a.y,a.l))continue;const r=amp?52:20;heal(a,(a===u?r*0.72:r)*dt,u)}}
+    if(u.mode==='heal'){const amp=u.st.amp>0;for(const a of alliesOf(u)){if(D2(a,u)>(amp&&PK(u,'noise')?20:12)*M||!mapLos(u.x,u.y,u.l,a.x,a.y,a.l))continue;const r=amp?56:20;heal(a,(a===u?r*0.6:r)*dt,u)}}
   },
   ai(u,c){
     const moving=alliesOf(u).some(a=>a.path.length>0)||u.path.length>0;
     const hurt=c.allies.filter(a=>hpFrac(a)<0.7&&D2(a,u)<12*M);
-    const want=(hurt.length>=1&&!moving)||hurt.length>=2||hurt.some(a=>hpFrac(a)<0.4)?'heal':'speed';
+    // heal song whenever anyone near is hurt or a fight is on; speed only to rotate (or to get out) with everyone topped up
+    const fightOn=c.foesAll.some(f=>c.allies.some(a=>D2(a,f)<30*M));
+    const want=AIF[u.team].luc?(hurt.length>=1||fightOn&&!(G.T[u.team].ts!=='engage'&&moving)?'heal':'speed'):(hurt.length>=1&&!moving)||hurt.length>=2||hurt.some(a=>hpFrac(a)<0.4)?'heal':'speed';
     if(u.mode!==want)use(u,'shift');
     if(u.mode==='heal'&&hurt.length>=2&&c.foes.length)use(u,'e');
     if(u.mode==='speed'&&(G.call==='push'&&u.team==='blue'||G.T[u.team].style==='brawl'&&G.T[u.team].engT&&G.el-G.T[u.team].engT<4)&&moving&&c.foesAll.length)use(u,'e');
@@ -722,13 +724,13 @@ lucio:{
 kiriko:{
   lmb(u){if(u.fire1>0||u.reload>0)return;if(u.ammo<=0){reloadNow(u);return}u.fire1=.2*rate(u);u.ammo=Math.max(0,u.ammo-2);
     const cands=alliesOf(u).filter(a=>a!==u&&D2(a,u)<35*M&&mapLos(u.x,u.y,u.l,a.x,a.y,a.l));const t=nearestTo(cands,u.aimX,u.aimY);
-    const a=t?Math.atan2(t.y-u.y,t.x-u.x):aimAng(u);for(let k=0;k<2;k++){proj(u,a+(k?.08:-.08),{speed:t?(PK(u,'urgent')&&hpFrac(t)<.5?33:24):18,heal:13,r:4,range:35,home:t,c:'#9fffd0'})}},
+    const a=t?Math.atan2(t.y-u.y,t.x-u.x):aimAng(u);for(let k=0;k<2;k++){proj(u,a+(k?.08:-.08),{speed:t?(PK(u,'urgent')&&hpFrac(t)<.5?33:24):18,heal:12,r:4,range:35,home:t,c:'#9fffd0'})}},
   rmb(u){if(u.fire2>0||u.reload2>0)return;if(u.ammo2<=0){u.reload2=u.d.reload2*rate(u);return}u.fire2=.5*rate(u);u.ammo2--;proj(u,aimAng(u),{speed:90,dmg:60,r:2,range:60,c:'#ffe6f0',onHit:()=>{if(!PK(u,'fortune'))return;const a0=aimAng(u);const f=alliesOf(u).filter(x=>x!==u&&D2(x,u)<35*M&&Math.abs(angDiff(Math.atan2(x.y-u.y,x.x-u.x),a0))<.8).sort((x,y)=>D2(x,u)-D2(y,u))[0];if(f)for(let j=0;j<2;j++)proj(u,Math.atan2(f.y-u.y,f.x-u.x)+(j?.08:-.08),{speed:24,heal:13,r:4,range:35,home:f,c:'#9fffd0'})}})},
   shift(u){const cands=alliesOf(u).filter(a=>a!==u&&D2(a,u)<35*M);const t=nearestTo(cands,u.aimX,u.aimY);if(!t)return false;
     G.fx.push({type:'line',ax:u.x,ay:u.y,bx:t.x,by:t.y,c:'#ffd6f0',w:3,t:.3});u.x=t.x+rnd(-8,8);u.y=t.y+rnd(-8,8);u.l=t.l;u.st.inv=.25;u.path=[];if(PK(u,'readystep'))u.st.ready=3},
   e(u){let x=u.aimX,y=u.aimY;const d=Math.hypot(x-u.x,y-u.y);if(d>20*M){x=u.x+(x-u.x)/d*20*M;y=u.y+(y-u.y)/d*20*M}
-    for(const a of alliesOf(u)){if(Math.hypot(a.x-x,a.y-y)>5*M+R_HIT)continue;const deb=a.st.sleep>0||a.st.antiheal>0||a.st.stun>0||a.st.burn>0||a.st.hinder>0||a.st.frozen>0||a.st.chain>0;
-      ['sleep','antiheal','stun','burn','hinder','frozen','chain','slow','vortex','bliz','lift'].forEach(k=>a.st[k]=0);a.st.inv=.65;if(PK(u,'foxtrot'))a.st.fox=2;heal(a,deb?110:80,u)}
+    for(const a of alliesOf(u)){if(Math.hypot(a.x-x,a.y-y)>4*M+R_HIT)continue;const deb=a.st.sleep>0||a.st.antiheal>0||a.st.stun>0||a.st.burn>0||a.st.hinder>0||a.st.frozen>0||a.st.chain>0;
+      ['sleep','antiheal','stun','burn','hinder','frozen','chain','slow','vortex','bliz','lift'].forEach(k=>a.st[k]=0);a.st.inv=.5;if(PK(u,'foxtrot'))a.st.fox=2;heal(a,deb?110:80,u)}
     G.fx.push({type:'ring',x,y,r:5*M,c:'#ffe28a',t:.5})},
   q(u){const a=aimAng(u);G.fields.push({kind:'rush',team:u.team,owner:u,x:u.x,y:u.y,a,len:32*M,w:5*M,t:8})},
   tick(u,dt){if(u.reload2>0){u.reload2-=dt;if(u.reload2<=0)u.ammo2=u.d.ammo2}if(u.fire2>0)u.fire2-=dt},
@@ -747,12 +749,12 @@ kiriko:{
 // ---------------- TRACER ----------------
 tracer:{
   lmb(u){if(u.fire1>0||u.reload>0)return;if(u.ammo<=0){reloadNow(u);return}u.fire1=.05*rate(u);u.ammo--;
-    hitscan(u,aimAng(u)+rnd(-.036,.036),40*M,d=>6*falloff(d/M,10,20,.3),'#ffd166',{ft:.04,w:1})},
+    hitscan(u,aimAng(u)+rnd(-.036,.036),40*M,d=>5.75*falloff(d/M,10,20,.3),'#ffd166',{ft:.04,w:1})},
   shift(u){if(u.charges<=0||u.st.hinder>0)return false;let tx=u.aimX,ty=u.aimY;if(u.mvx||u.mvy){tx=u.x+u.mvx*100;ty=u.y+u.mvy*100}else if(u.path.length){tx=u.path[0].x;ty=u.path[0].y}
     if((u.blinkGap||0)>G.el)return false;const ox=u.x,oy=u.y;teleport(u,tx,ty,7.5);G.fx.push({type:'line',ax:ox,ay:oy,az:(u.z||0)+1,bx:u.x,by:u.y,bz:(u.z||0)+1,c:'#7fd3ff',w:4,t:.25});u.charges--;u.blinkGap=G.el+.1;
     if(u.dest&&u.ctrl==='ai')pathTo(u,u.dest.x,u.dest.y,u.dest.l);return 'nocd'},
   e(u){const old=u.hist[0];if(!old)return false;const best=Math.max(...u.hist.filter(h=>h.t-G.t<3.05).map(h=>h.hp),u.hp);
-    G.fx.push({type:'line',ax:u.x,ay:u.y,bx:old.x,by:old.y,c:'#7fd3ff',w:3,t:.5});u.x=old.x;u.y=old.y;u.l=old.l;u.hp=Math.min(u.d.hp,best);if(PK(u,'aces'))u.charges=3;if(PK(u,'quantum'))addOver(u,50,10);u.ammo=u.d.ammo;u.reload=0;u.st.inv=.5;['slow','antiheal','burn','hinder','chain','vortex','bliz'].forEach(k=>u.st[k]=0);u.path=[]},
+    G.fx.push({type:'line',ax:u.x,ay:u.y,bx:old.x,by:old.y,c:'#7fd3ff',w:3,t:.5});u.x=old.x;u.y=old.y;u.l=old.l;u.hp=Math.min(u.d.hp,best);if(PK(u,'aces'))u.charges=3;if(PK(u,'quantum'))addOver(u,50,10);u.ammo=u.d.ammo;u.reload=0;u.st.inv=.9;['slow','antiheal','burn','hinder','chain','vortex','bliz'].forEach(k=>u.st[k]=0);u.path=[]},
   q(u){proj(u,aimAng(u),{speed:15,r:6,range:5,sticky:true,fuse:1,c:'#7fd3ff',kind:'bomb',onEnd:(x,y,p)=>{
     const BR=PK(u,'blast')?6:4;for(const e of G.units){if(e.dead)continue;const d=Math.hypot(e.x-x,e.y-y);if(d>BR*M+R_HIT)continue;const f=Math.max(0,1-Math.max(0,d-R_HIT)/(BR*M));
       if(e.team!==u.team)dmg(e,e===p.stuck?350:70+280*f,u);else if(e===u)dmg(e,35+140*f,u)}
@@ -775,15 +777,15 @@ tracer:{
   }},
 // ---------------- SOJOURN ----------------
 sojourn:{
-  lmb(u){if(u.fire1>0||u.reload>0)return;if(u.ammo<=0){reloadNow(u);return}u.fire1=(1/15)*rate(u);u.ammo--;
+  lmb(u){if(u.fire1>0||u.reload>0)return;if(u.ammo<=0){reloadNow(u);return}u.fire1=(1/16)*rate(u);u.ammo--;
     proj(u,aimAng(u)+rnd(-.01,.01),{speed:160,dmg:9,r:2,range:60,c:'#9fe3ff',onHit:()=>{u.energy=Math.min(emax(u),u.energy+5)}})},
   rmb(u){if(u.fire2>0||u.energy<1)return;u.fire2=.5*rate(u);const e=u.energy;u.energy=0;const oc=u.st.overclock>0;
     hitscan(u,aimAng(u),70*M,d=>(20+e)*falloff(d/M,40,60,.5),'#7fe3ff',{w:2+e/30,ft:.25,pierce:oc})},
-  shift(u){if(u.st.hinder>0)return false;const ch=PK(u,'dual')?2:1;if(u.slideCh==null)u.slideCh=ch;if(u.slideCh<=0)return false;u.slideCh--;let dx=u.mvx||0,dy=u.mvy||0;if(!dx&&!dy){const a=aimAng(u);dx=Math.cos(a);dy=Math.sin(a)}u.st.slide=.6;u.slideDir=[dx,dy];u.path=[];u.slideGain=0;if(!(u.cd.shift>0))u.cd.shift=6;return 'nocd'},
-  e(u){proj(u,aimAng(u),{speed:35,r:5,range:30,dmg:0,c:'#b98cff',onEnd:(x,y)=>G.fields.push({kind:'disruptor',team:u.team,owner:u,x,y,r:4*M,t:4,dps:80,slow:PK(u,'decel')?.25:0})})},
+  shift(u){if(u.st.hinder>0)return false;const ch=PK(u,'dual')?2:1;if(u.slideCh==null)u.slideCh=ch;if(u.slideCh<=0)return false;u.slideCh--;let dx=u.mvx||0,dy=u.mvy||0;if(!dx&&!dy){const a=aimAng(u);dx=Math.cos(a);dy=Math.sin(a)}u.st.slide=.6;u.slideDir=[dx,dy];u.path=[];u.slideGain=0;if(!(u.cd.shift>0))u.cd.shift=7;return 'nocd'},
+  e(u){proj(u,aimAng(u),{speed:35,r:5,range:30,dmg:0,c:'#b98cff',onEnd:(x,y)=>G.fields.push({kind:'disruptor',team:u.team,owner:u,x,y,r:4*M,t:3.5,dps:90,slow:PK(u,'decel')?.25:0})})},
   q(u){u.st.overclock=8},
   tick(u,dt){if(u.fire2>0)u.fire2-=dt;if(u.st.overclock>0)u.energy=Math.min(emax(u),u.energy+100*dt);u.energy=Math.min(u.energy,emax(u));
-    const ch=PK(u,'dual')?2:1;if(u.slideCh==null)u.slideCh=ch;if(u.slideCh<ch&&!(u.cd.shift>0)){u.slideCh++;if(u.slideCh<ch)u.cd.shift=6}
+    const ch=PK(u,'dual')?2:1;if(u.slideCh==null)u.slideCh=ch;if(u.slideCh<ch&&!(u.cd.shift>0)){u.slideCh++;if(u.slideCh<ch)u.cd.shift=7}
     if(u.st.slide>0&&PK(u,'friction')&&(u.slideGain||0)<75){const g=Math.min(75-(u.slideGain||0),125*dt);u.slideGain=(u.slideGain||0)+g;u.energy=Math.min(emax(u),u.energy+g)}
     if(u.st.slide>0){const s=26*M*dt;moveBy(u,u.slideDir[0]*s,u.slideDir[1]*s)}},
   ai(u,c){const t=c.tgt;
@@ -805,7 +807,7 @@ ramattra:{
     let x=u.aimX,y=u.aimY;const d=Math.hypot(x-u.x,y-u.y);if(d>25*M){x=u.x+(x-u.x)/d*25*M;y=u.y+(y-u.y)/d*25*M}
     G.barriers.push({team:u.team,owner:u,kind:'ram',x,y,ang:Math.atan2(y-u.y,x-u.x),w:4*M,hp:1000,max:1000,t:4})},
   shift(u){if(u.st.nemesis>0)return false;u.st.nemesis=8;u.armor+=275;u.nemCd=true;return 'nocd'},
-  e(u){proj(u,aimAng(u),{speed:30,r:5,range:30,dmg:0,c:'#c28bff',onEnd:(x,y)=>{G.fields.push({kind:'vortex',team:u.team,owner:u,x,y,r:4*M,t:3,dps:23.3});if(PK(u,'vengeful'))splash(u,x,y,6,50,50,{c:'#c28bff'})}})},
+  e(u){proj(u,aimAng(u),{speed:30,r:5,range:30,dmg:0,c:'#c28bff',onEnd:(x,y)=>{splash(u,x,y,4,30,30,{c:'#c28bff'});G.fields.push({kind:'vortex',team:u.team,owner:u,x,y,r:4*M,t:3,dps:23.3});if(PK(u,'vengeful'))splash(u,x,y,6,50,50,{c:'#c28bff'})}})},
   q(u){u.st.annihil=3;u.st.annihilMax=20;if(!(u.st.nemesis>0)){u.armor+=275}u.st.nemesis=999;u.nemCd=true},
   tick(u,dt){
     if(u.st.annihil>0){let hitAny=false;for(const e of enemiesOf(u)){if(D2(e,u)<13*M&&mapLos(u.x,u.y,u.l,e.x,e.y,e.l)){dmg(e,30*dt,u);hitAny=true}}
@@ -829,13 +831,15 @@ ramattra:{
   }},
 // ---------------- SIGMA ----------------
 sigma:{
-  lmb(u){if(u.fire1>0)return;u.fire1=1.5*rate(u);const a=aimAng(u);const dist=Math.min(Math.hypot(u.aimX-u.x,u.aimY-u.y),30*M);
-    for(let k=0;k<2;k++){const p=proj(u,a+(k?.03:-.03),{speed:48,r:6,dmg:20,range:dist/M+.5+k*.1,c:'#b0a4ff',onEnd:(x,y)=>splash(u,x,y,2.9,40,12,{c:'#b0a4ff'})});p.x-=Math.cos(a)*k*10;p.y-=Math.sin(a)*k*10}},
+  // Hyperspheres (like the real game): they burst when they hit someone or something, or on their own after 22 m —
+  // not at the distance you aimed at, so a miss is a miss
+  lmb(u){if(u.fire1>0)return;u.fire1=1.5*rate(u);const a=aimAng(u);
+    for(let k=0;k<2;k++){const p=proj(u,a+(k?.03:-.03),{speed:48,r:6,dmg:20,range:22,c:'#b0a4ff',onEnd:(x,y)=>splash(u,x,y,2.9,40,12,{c:'#b0a4ff'})});p.x-=Math.cos(a)*k*10;p.y-=Math.sin(a)*k*10}},
   // Experimental Barrier: hold to send it forward (20 m/s), release to stop it, press again to recall
   rmbDown(u){const b=G.barriers.find(b=>b.owner===u&&b.kind==='sigma');
     if(b){if(!b.moving){G.barriers=G.barriers.filter(x=>x!==b);u.barrierHp=b.hp;u.barrierT=2}return}
     if((u.cd.barrier||0)>0||u.dead||stunned(u))return;const a=aimAng(u);
-    callout(u,'rmb');G.barriers.push({team:u.team,owner:u,kind:'sigma',x:u.x+Math.cos(a)*1.5*M,y:u.y+Math.sin(a)*1.5*M,ang:a,w:3.25*M,hp:u.barrierHp??700,max:700,t:1e9,moving:true,dir:a,trav:0})},
+    callout(u,'rmb');G.barriers.push({team:u.team,owner:u,kind:'sigma',x:u.x+Math.cos(a)*1.5*M,y:u.y+Math.sin(a)*1.5*M,ang:a,w:3.25*M,hp:u.barrierHp??650,max:650,t:1e9,moving:true,dir:a,trav:0})},
   rmbUp(u){const b=G.barriers.find(b=>b.owner===u&&b.kind==='sigma');if(b)b.moving=false},
   rmb(u){KIT.sigma.rmbDown(u)},
   shift(u){u.st.grasp=2;G.barriers.push({team:u.team,owner:u,kind:'grasp',x:u.x,y:u.y,ang:aimAng(u),w:1.8*M,hp:1e9,max:1e9,t:2,follow:true})},
@@ -843,7 +847,7 @@ sigma:{
   q(u){const x=u.aimX,y=u.aimY;u.st.fluxT=.6;G.fields.push({kind:'flux',team:u.team,owner:u,x,y,r:8*M,t:2.5+.6,delay:.6,hit:new Set()})},
   tick(u,dt){
     const b=G.barriers.find(b=>b.owner===u&&b.kind==='sigma');
-    if(!b){if(u.barrierT>0)u.barrierT-=dt;else if(u.barrierHp!=null){u.barrierHp=Math.min(700,u.barrierHp+85.4*dt);if(u.barrierHp>=700)u.barrierHp=null}}
+    if(!b){if(u.barrierT>0)u.barrierT-=dt;else if(u.barrierHp!=null){u.barrierHp=Math.min(650,u.barrierHp+79.3*dt);if(u.barrierHp>=650)u.barrierHp=null}}
     else if(b.moving){const s=20*M*dt;const nx=b.x+Math.cos(b.dir)*s,ny=b.y+Math.sin(b.dir)*s;
       if(b.trav>40*M||solidAt(cellOf(nx,ny),1.5)){b.moving=false}else{b.x=nx;b.y=ny;b.trav+=s}}
     for(const g of G.barriers)if(g.owner===u&&g.kind==='grasp'){g.x=u.x+Math.cos(u.face)*14;g.y=u.y+Math.sin(u.face)*14;g.ang=u.face}
@@ -864,8 +868,8 @@ sigma:{
 // ---------------- ASHE ----------------
 ashe:{
   lmb(u){if(u.fire1>0)return;if(u.reload>0){if(u.ammo>0){u.reload=0}else return}if(u.ammo<=0){reloadNow(u);return}
-    const sc=u.st.scoped;u.fire1=(sc?.65:.267)*rate(u);u.ammo--;
-    hitscan(u,aimAng(u)+(sc?0:rnd(-.02,.02)),60*M,d=>sc?75*falloff(d/M,30,50,.3):40*falloff(d/M,20,40,.3),'#ffcf8a',{w:sc?2:1.5})},
+    const sc=u.st.scoped;u.fire1=(sc?.66:.256)*rate(u);u.ammo--;
+    hitscan(u,aimAng(u)+(sc?0:rnd(-.02,.02)),60*M,d=>sc?75*falloff(d/M,35,55,.3):35*falloff(d/M,20,40,.3),'#ffcf8a',{w:sc?2:1.5})},
   rmb(u,down){u.st.scoped=!!down;return 'nocd'},
   shift(u){const a=aimAng(u);for(const e of enemiesOf(u)){const d=D2(u,e);if(d>9*M)continue;const b=Math.atan2(e.y-u.y,e.x-u.x);if(Math.abs(angDiff(a,b))>.35||!sees(u,e))continue;dmg(e,90*falloff(d/M,4,9,.4),u);knock(e,b,10,.3)}
     knock(u,a+Math.PI,14,.3);G.fx.push({type:'cone',x:u.x,y:u.y,a,r:9*M,c:'#ffcf8a',t:.2})},
@@ -877,7 +881,7 @@ ashe:{
     if(t){const d=D2(u,t);u.st.scoped=d>12*M;aimAt(u,t,0,u.st.scoped?0.55:0.9);u.ai.f1=true;
       if(d<5*M)use(u,'shift');
       const grouped=c.foes.filter(f=>D2(f,t)<4*M).length;if(grouped>=2&&d<25*M){u.aimX=t.x;u.aimY=t.y;use(u,'e')}
-    }else{u.ai.f1=false;u.st.scoped=false;if(u.ammo<15)reloadNow(u)}
+    }else{u.ai.f1=false;u.st.scoped=false;if(u.ammo<12)reloadNow(u)}
   }},
 // ---------------- MEI ----------------
 mei:{
@@ -905,7 +909,7 @@ ana:{
   rmb(u,down){u.st.scoped=!!down;return 'nocd'},
   shift(u){proj(u,aimAng(u),{speed:60,r:3,range:40,dmg:5,dmgOpt:{keepSleep:true},c:'#c9a0ff',onHit:t=>{if(t.st.inv>0)return;t.st.sleep=t.role==='tank'?3.5:5;t.path=[];log('skill',`${t.team==='blue'?'':'［敵］'}${t.team==='blue'?'［敵］アナのスリープ → ':'スリープ → '}${t.name}`)}})},
   e(u){const d=Math.min(Math.hypot(u.aimX-u.x,u.aimY-u.y),20*M);proj(u,aimAng(u),{speed:20,r:5,range:d/M,dmg:0,c:'#c9a0ff',onEnd:(x,y)=>{
-    for(const e of G.units){if(e.dead||Math.hypot(e.x-x,e.y-y)>4*M+R_HIT)continue;if(e.team===u.team){e.st.nadeBoost=3;heal(e,75,u)}else{dmg(e,75,u);e.st.antiheal=3}}
+    for(const e of G.units){if(e.dead||Math.hypot(e.x-x,e.y-y)>4*M+R_HIT)continue;if(e.team===u.team){e.st.nadeBoost=3;heal(e,90,u)}else{dmg(e,90,u);e.st.antiheal=3}}
     G.fx.push({type:'ring',x,y,r:4*M,c:'#c9a0ff',t:.5})}})},
   q(u){const cands=alliesOf(u).filter(a=>a!==u&&D2(a,u)<40*M&&mapLos(u.x,u.y,u.l,a.x,a.y,a.l));const t=nearestTo(cands,u.aimX,u.aimY);if(!t)return false;t.st.nano=8;heal(t,250,u)},
   ai(u,c){
@@ -923,7 +927,7 @@ ana:{
   }},
 // ---------------- MIZUKI ----------------
 mizuki:{
-  lmb(u){if(u.fire1>0||u.reload>0)return;if(u.ammo<=0){reloadNow(u);return}u.fire1=.45*rate(u);u.ammo--;
+  lmb(u){if(u.fire1>0||u.reload>0)return;if(u.ammo<=0){reloadNow(u);return}u.fire1=.7*rate(u);u.ammo--;
     proj(u,aimAng(u),{speed:60,dmg:30,r:4,range:30,c:'#ffb3d9',onHit:t=>{t.st.glaive=.5;t.glaiveSrc=u}})},
   shift(u){if(u.doll){u.x=u.doll.x;u.y=u.doll.y;u.l=u.doll.l;u.doll=null;u.st.inv=.25;u.st.slow=0;return 'nocd'}
     if(u.st.hinder>0)return false;const o={x:u.x,y:u.y,l:u.l};teleport(u,u.aimX,u.aimY,8);u.doll={...o,t:5.5};u.st.inv=.25;u.cd.shift=12;return 'nocd'},
@@ -933,7 +937,13 @@ mizuki:{
     [90,70,50].forEach(h=>{if(!cur)return;heal(cur,h,u);done.add(cur);G.fx.push({type:'ring',x:cur.x,y:cur.y,r:14,c:'#ffb3d9',t:.4});cur=nearestTo(alliesOf(u).filter(a=>a!==u&&!done.has(a)&&D2(a,cur)<12*M),cur.x,cur.y)});
     heal(u,30,u);return 'nocd'},
   q(u){G.fields.push({kind:'kekkai',team:u.team,owner:u,x:u.x,y:u.y,r:7*M,t:6,first:true})},
-  tick(u,dt){for(const a of alliesOf(u)){if(D2(a,u)<12*M&&mapLos(u.x,u.y,u.l,a.x,a.y,a.l))heal(a,(a===u?14:20)*dt,u)}
+  // Remedy Aura (real numbers): 20→5 HP/s to allies and 14→3.5 to herself, scaled by the resource she builds by dealing
+  // damage and healing (1 per point, decaying) — full strength only while she is actually playing, not for free
+  tick(u,dt){const own=u.stat.heal-(u.aurH||0); // healing that did not come from the aura itself
+    const gen=Math.max(0,u.stat.dmg-(u.resD??u.stat.dmg))+Math.max(0,own-(u.resH??own));u.resD=u.stat.dmg;u.resH=own;
+    u.res=Math.max(0,Math.min(100,(u.res||0)+gen-20*dt));const k=u.res/100;const h0=u.stat.heal;
+    for(const a of alliesOf(u)){if(D2(a,u)<12*M&&mapLos(u.x,u.y,u.l,a.x,a.y,a.l))heal(a,(a===u?3.5+10.5*k:5+15*k)*dt,u)}
+    u.aurH=(u.aurH||0)+(u.stat.heal-h0);
     if((u.kasa??2)<2){u.kt=(u.kt||0)+dt*(u.st.rush>0?2:1);if(u.kt>=6){u.kt=0;u.kasa=(u.kasa??0)+1}}
     if(u.doll){u.doll.t-=dt;if(u.doll.t<=0)u.doll=null}},
   ai(u,c){
@@ -1469,7 +1479,7 @@ const AIP={ // rng: preferred fight distance (m), min: too close, peek: plays th
   tracer:{rng:8,min:0,peek:.4,tol:1.3,flank:1},bob:{rng:20,min:0,peek:0,tol:9},
   lucio:{rng:13,min:3,peek:.6,tol:1.1,sup:1},kiriko:{rng:18,min:7,peek:1,tol:.8,sup:1},ana:{rng:25,min:11,peek:1,tol:.8,sup:1},mizuki:{rng:15,min:5,peek:1,tol:.9,sup:1}};
 // feature switches per side (all on in play; the test harness turns them off for one side to measure them)
-const AIF={blue:{path:1,peek:1,cover:1,thr:1,area:1,sur:1,fov:1,cap:1,ch2:1,hold2:1,pinch:1,rgch:1,ttd:1,rg4:1,lock:1,tch:1,trs:1,esk:1},red:{path:1,peek:1,cover:1,thr:1,area:1,sur:1,fov:1,cap:1,ch2:1,hold2:1,pinch:1,rgch:1,ttd:1,rg4:1,lock:1,tch:1,trs:1,esk:1}};
+const AIF={blue:{path:1,peek:1,cover:1,thr:1,area:1,sur:1,fov:1,cap:1,ch2:1,hold2:1,pinch:1,rgch:1,ttd:1,rg4:1,lock:1,tch:1,trs:1,esk:1,luc:1},red:{path:1,peek:1,cover:1,thr:1,area:1,sur:1,fov:1,cap:1,ch2:1,hold2:1,pinch:1,rgch:1,ttd:1,rg4:1,lock:1,tch:1,trs:1,esk:1,luc:1}};
 const RANGE_M={ramattra:15,sigma:24,sojourn:44,ashe:46,tracer:14,mei:24,lucio:20,kiriko:30,ana:44,mizuki:24,bob:28};
 const THREAT_W={tank:1,damage:1.3,support:.7};
 const AOE_ULT={sigma:1,mei:1,ramattra:1,tracer:1,lucio:0,kiriko:0,ana:0,mizuki:0,sojourn:0,ashe:0};
